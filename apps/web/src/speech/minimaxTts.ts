@@ -207,38 +207,41 @@ const DEFAULT_MODES_STATE: ModesState = {
 };
 
 let modesState: ModesState = DEFAULT_MODES_STATE;
-let modesInflight: Promise<ModesState> | undefined;
-let modesEnvironmentId: EnvironmentId | undefined;
+const modesByEnv = new Map<EnvironmentId, ModesState>();
+const modesInflightByEnv = new Map<EnvironmentId, Promise<ModesState>>();
 const modesListeners = new Set<() => void>();
 
-function emitModes(next: ModesState) {
+function emitModes(environmentId: EnvironmentId, next: ModesState) {
   modesState = next;
+  modesByEnv.set(environmentId, next);
   for (const listener of modesListeners) listener();
 }
 
 export const ttsModes = {
-  snapshot: () => modesState,
+  snapshot: (environmentId?: EnvironmentId | null) =>
+    (environmentId ? modesByEnv.get(environmentId) : undefined) ?? modesState,
   subscribe: (listener: () => void) => {
     modesListeners.add(listener);
     return () => modesListeners.delete(listener);
   },
   refresh: (prepared: PreparedConnection) => {
-    if (modesInflight && modesEnvironmentId === prepared.environmentId) return modesInflight;
-    modesEnvironmentId = prepared.environmentId;
-    modesInflight = runEnvironmentSpeech(getEnvironmentTtsModes(prepared))
+    const existing = modesInflightByEnv.get(prepared.environmentId);
+    if (existing) return existing;
+    const inflight = runEnvironmentSpeech(getEnvironmentTtsModes(prepared))
       .then((res) => {
         const next: ModesState = {
           auto: res.auto,
           chats: res.chats,
           loaded: true,
         };
-        emitModes(next);
+        emitModes(prepared.environmentId, next);
         return next;
       })
       .finally(() => {
-        modesInflight = undefined;
+        modesInflightByEnv.delete(prepared.environmentId);
       });
-    return modesInflight;
+    modesInflightByEnv.set(prepared.environmentId, inflight);
+    return inflight;
   },
   setChat: async (prepared: PreparedConnection, threadId: string, mode: TtsAuto | null) => {
     const res = await runEnvironmentSpeech(setEnvironmentTtsChatMode(prepared, { threadId, mode }));
@@ -247,20 +250,25 @@ export const ttsModes = {
       chats: res.chats,
       loaded: true,
     };
-    emitModes(next);
+    emitModes(prepared.environmentId, next);
     return next;
   },
 };
 
 export function useTtsModes(prepared: PreparedConnection | null) {
-  const state = useSyncExternalStore(ttsModes.subscribe, ttsModes.snapshot, ttsModes.snapshot);
+  const envId = prepared?.environmentId;
+  const state = useSyncExternalStore(
+    ttsModes.subscribe,
+    () => ttsModes.snapshot(envId),
+    () => ttsModes.snapshot(envId),
+  );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- primes the external ttsModes store from the environment HTTP endpoint when the connection changes
   useEffect(() => {
     if (!prepared) return;
-    if (!state.loaded || modesEnvironmentId !== prepared.environmentId) {
+    if (!modesByEnv.get(prepared.environmentId)?.loaded) {
       void ttsModes.refresh(prepared).catch(() => undefined);
     }
-  }, [prepared, state.loaded]);
+  }, [prepared]);
   return state;
 }
 
@@ -431,52 +439,70 @@ export function watchGoneChats(input: {
   return input.chats.subscribe(sync);
 }
 
-let activeAutoplay: ReturnType<typeof startAutoplay> | undefined;
-let activeAutoplayEnvironmentId: EnvironmentId | undefined;
+const activeAutoplays = new Map<EnvironmentId, ReturnType<typeof startAutoplay>>();
 
 export function clearMinimaxAutoplayQueue() {
-  activeAutoplay?.clear();
+  for (const auto of activeAutoplays.values()) {
+    auto.clear();
+  }
 }
 
 function dropMinimaxChatAudio(threadId: string) {
-  activeAutoplay?.dropChat(threadId);
+  for (const auto of activeAutoplays.values()) {
+    auto.dropChat(threadId);
+  }
   if (webPlayer.snapshot().threadId === threadId) {
     webPlayer.dispose();
   }
 }
 
 export function useMinimaxAutoplay(
-  prepared: PreparedConnection | null,
+  preparedOrList: PreparedConnection | ReadonlyArray<PreparedConnection> | null,
   activeThreadIds: ReadonlySet<string>,
 ) {
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- manages background autoplay polling timer and HTMLAudioElement queue lifecycle while mounted
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- manages background autoplay polling timers across all connected environments while mounted
   useEffect(() => {
-    if (!prepared) return;
-    if (activeAutoplay && activeAutoplayEnvironmentId === prepared.environmentId) return;
-    activeAutoplay?.stop();
-    activeAutoplayEnvironmentId = prepared.environmentId;
-    const auto = startAutoplay({
-      environmentId: prepared.environmentId,
-      listReplies: () => runEnvironmentSpeech(getEnvironmentTtsReplies(prepared)),
-      synthesize: (id, threadId, text) =>
-        runEnvironmentSpeech(
-          synthesizeEnvironmentTts(prepared, {
-            id,
-            ...(threadId ? { threadId } : {}),
-            ...(text ? { text } : {}),
-          }),
-        ),
-      player: webPlayer,
-    });
-    activeAutoplay = auto;
-    return () => {
-      if (activeAutoplay === auto) {
+    const connections = Array.isArray(preparedOrList)
+      ? preparedOrList
+      : preparedOrList
+        ? [preparedOrList as PreparedConnection]
+        : [];
+    const nextIds = new Set(connections.map((conn) => conn.environmentId));
+    for (const [envId, auto] of activeAutoplays) {
+      if (!nextIds.has(envId)) {
         auto.stop();
-        activeAutoplay = undefined;
-        activeAutoplayEnvironmentId = undefined;
+        activeAutoplays.delete(envId);
       }
-    };
-  }, [prepared]);
+    }
+    for (const conn of connections) {
+      if (activeAutoplays.has(conn.environmentId)) continue;
+      const auto = startAutoplay({
+        environmentId: conn.environmentId,
+        listReplies: () => runEnvironmentSpeech(getEnvironmentTtsReplies(conn)),
+        synthesize: (id, threadId, text) =>
+          runEnvironmentSpeech(
+            synthesizeEnvironmentTts(conn, {
+              id,
+              ...(threadId ? { threadId } : {}),
+              ...(text ? { text } : {}),
+            }),
+          ),
+        player: webPlayer,
+      });
+      activeAutoplays.set(conn.environmentId, auto);
+    }
+  }, [preparedOrList]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cleans up all active autoplay pollers when the sidebar unmounts
+  useEffect(
+    () => () => {
+      for (const auto of activeAutoplays.values()) {
+        auto.stop();
+      }
+      activeAutoplays.clear();
+    },
+    [],
+  );
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops external HTMLAudioElement and autoplay queue when the playing thread is archived or deleted
   useEffect(() => {

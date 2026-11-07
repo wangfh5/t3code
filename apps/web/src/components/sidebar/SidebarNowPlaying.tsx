@@ -1,3 +1,4 @@
+import type { PreparedConnection } from "@t3tools/client-runtime/connection";
 import { type ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as Option from "effect/Option";
@@ -11,8 +12,8 @@ import {
   webPlayer,
 } from "../../speech/minimaxTts";
 import { useQuietThreadShells, useThreadShell } from "../../state/entities";
-import { usePrimaryEnvironmentId } from "../../state/environments";
-import { usePreparedConnection } from "../../state/session";
+import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
+import { readPreparedConnection, usePreparedConnection } from "../../state/session";
 import { Button } from "../ui/button";
 import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -21,8 +22,24 @@ export const SidebarNowPlaying = memo(function SidebarNowPlaying() {
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const prepared = Option.getOrNull(usePreparedConnection(primaryEnvironmentId));
+  const primaryPrepared = Option.getOrNull(usePreparedConnection(primaryEnvironmentId));
+  const { environments } = useEnvironments();
   const shells = useQuietThreadShells();
+
+  const connections: PreparedConnection[] = [];
+  const seenEnvIds = new Set<string>();
+  if (primaryPrepared) {
+    seenEnvIds.add(primaryPrepared.environmentId);
+    connections.push(primaryPrepared);
+  }
+  for (const env of environments) {
+    if (env.status !== "connected" || seenEnvIds.has(env.environmentId)) continue;
+    const conn = readPreparedConnection(env.environmentId);
+    if (conn) {
+      seenEnvIds.add(conn.environmentId);
+      connections.push(conn);
+    }
+  }
 
   const activeThreadIds = new Set<string>();
   for (const shell of shells) {
@@ -31,7 +48,7 @@ export const SidebarNowPlaying = memo(function SidebarNowPlaying() {
     }
   }
 
-  useMinimaxAutoplay(prepared, activeThreadIds);
+  useMinimaxAutoplay(connections, activeThreadIds);
 
   const audio = useWebPlayer();
   const targetEnvironmentId = audio.environmentId ?? primaryEnvironmentId;

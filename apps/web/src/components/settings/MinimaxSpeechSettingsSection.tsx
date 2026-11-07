@@ -1,3 +1,4 @@
+import type { PreparedConnection } from "@t3tools/client-runtime/connection";
 import {
   clearEnvironmentTtsCache,
   getEnvironmentTtsCacheStats,
@@ -19,7 +20,12 @@ import { useEffect, useState } from "react";
 import { ttsModes } from "../../speech/minimaxTts";
 import { runEnvironmentSpeech } from "../../speech/runEnvironmentSpeech";
 import { usePrimaryEnvironmentId } from "../../state/environments";
-import { useEnvironmentScope, usePreparedConnection } from "../../state/session";
+import {
+  readPreparedConnection,
+  useEnvironmentScope,
+  useEnvironmentsWithScope,
+  usePreparedConnection,
+} from "../../state/session";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -52,9 +58,10 @@ const REGION_LABELS: Record<TtsRegion, string> = {
 
 const GEMINI_VOICE_PRESETS: ReadonlyArray<{ readonly id: string; readonly label: string }> = [
   { id: "Kore", label: "Kore \u00b7 Clear & firm (Female)" },
+  { id: "Leda", label: "Leda \u00b7 Warm & youthful (Female)" },
+  { id: "Nika", label: "Nika \u00b7 Expressive & natural (Female)" },
   { id: "Aoede", label: "Aoede \u00b7 Relaxed & natural (Female)" },
   { id: "Zephyr", label: "Zephyr \u00b7 Bright & articulate (Female)" },
-  { id: "Leda", label: "Leda \u00b7 Warm & youthful (Female)" },
   { id: "Callirrhoe", label: "Callirrhoe \u00b7 Friendly & easy-going (Female)" },
   { id: "Despina", label: "Despina \u00b7 Smooth & gentle (Female)" },
   { id: "Puck", label: "Puck \u00b7 Upbeat & lively (Male)" },
@@ -84,12 +91,57 @@ function formatMegabytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function sameTtsSettings(a: TtsSettings, b: TtsSettings): boolean {
+  return (
+    a.provider === b.provider &&
+    a.model === b.model &&
+    a.voice === b.voice &&
+    a.region === b.region &&
+    a.geminiModel === b.geminiModel &&
+    a.geminiVoice === b.geminiVoice &&
+    a.geminiStyle === b.geminiStyle &&
+    a.auto === b.auto &&
+    a.cacheMb === b.cacheMb
+  );
+}
+
+function resolveTargetConnections(
+  prepared: PreparedConnection | null,
+  canManage: boolean,
+  scopedEnvironments: ReadonlyArray<{
+    readonly environmentId: PreparedConnection["environmentId"];
+  }>,
+  writableEnvIds: ReadonlySet<PreparedConnection["environmentId"]>,
+): PreparedConnection[] {
+  const seen = new Set<string>();
+  const list: PreparedConnection[] = [];
+  if (prepared && canManage) {
+    seen.add(prepared.environmentId);
+    list.push(prepared);
+  }
+  for (const env of scopedEnvironments) {
+    if (seen.has(env.environmentId) || !writableEnvIds.has(env.environmentId)) continue;
+    const conn = readPreparedConnection(env.environmentId);
+    if (conn) {
+      seen.add(conn.environmentId);
+      list.push(conn);
+    }
+  }
+  return list;
+}
+
+const EMPTY_SCOPED_ENVIRONMENTS: ReadonlyArray<{
+  readonly environmentId: PreparedConnection["environmentId"];
+}> = [];
+
 export function MinimaxSpeechSettingsSection() {
   const settingsScope = useOptionalSettingsScope();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const environmentId = settingsScope?.target?.environmentId ?? primaryEnvironmentId;
   const prepared = Option.getOrNull(usePreparedConnection(environmentId));
   const canManage = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
+  const scopedEnvironments = settingsScope?.connectedEnvironments ?? EMPTY_SCOPED_ENVIRONMENTS;
+  const writableEnvIds = useEnvironmentsWithScope(scopedEnvironments, AuthSettingsWriteScope);
 
   const [saved, setSaved] = useState<TtsSettings>(DEFAULT_TTS_SETTINGS);
   const [form, setForm] = useState<TtsSettings>(DEFAULT_TTS_SETTINGS);
@@ -98,6 +150,7 @@ export function MinimaxSpeechSettingsSection() {
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [hasKey, setHasKey] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [outOfSync, setOutOfSync] = useState(false);
   const [cache, setCache] = useState<TtsCacheStats>({ files: 0, bytes: 0 });
   const [loadedEnvId, setLoadedEnvId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -108,15 +161,28 @@ export function MinimaxSpeechSettingsSection() {
 
   const loading = Boolean(prepared && loadedEnvId !== prepared.environmentId);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads persisted read-aloud TTS settings and audio cache stats from the environment HTTP endpoint on mount
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads persisted read-aloud TTS settings and audio cache stats across scoped environments on mount
   useEffect(() => {
     if (!prepared) return;
     let cancelled = false;
+    const targets = resolveTargetConnections(
+      prepared,
+      canManage,
+      scopedEnvironments,
+      writableEnvIds,
+    );
+    const peers = targets.filter((conn) => conn.environmentId !== prepared.environmentId);
     void Promise.all([
       runEnvironmentSpeech(getEnvironmentTtsSettings(prepared)),
       runEnvironmentSpeech(getEnvironmentTtsCacheStats(prepared)),
+      Promise.allSettled(
+        peers.map(async (conn) => ({
+          settings: await runEnvironmentSpeech(getEnvironmentTtsSettings(conn)),
+          stats: await runEnvironmentSpeech(getEnvironmentTtsCacheStats(conn)),
+        })),
+      ),
     ])
-      .then(([res, stats]) => {
+      .then(([res, stats, peerResults]) => {
         if (cancelled) return;
         const next: TtsSettings = {
           provider: res.provider ?? DEFAULT_TTS_SETTINGS.provider,
@@ -129,12 +195,35 @@ export function MinimaxSpeechSettingsSection() {
           auto: res.auto,
           cacheMb: res.cacheMb,
         };
+        let totalFiles = stats.files;
+        let totalBytes = stats.bytes;
+        let diff = false;
+        for (const item of peerResults) {
+          if (item.status !== "fulfilled") continue;
+          totalFiles += item.value.stats.files;
+          totalBytes += item.value.stats.bytes;
+          const peerNext: TtsSettings = {
+            provider: item.value.settings.provider ?? DEFAULT_TTS_SETTINGS.provider,
+            model: item.value.settings.model,
+            voice: item.value.settings.voice,
+            region: item.value.settings.region,
+            geminiModel: item.value.settings.geminiModel ?? DEFAULT_TTS_SETTINGS.geminiModel,
+            geminiVoice: item.value.settings.geminiVoice ?? DEFAULT_TTS_SETTINGS.geminiVoice,
+            geminiStyle: item.value.settings.geminiStyle ?? DEFAULT_TTS_SETTINGS.geminiStyle,
+            auto: item.value.settings.auto,
+            cacheMb: item.value.settings.cacheMb,
+          };
+          if (!sameTtsSettings(next, peerNext)) {
+            diff = true;
+          }
+        }
         setSaved(next);
         setForm(next);
         setCacheMbText(String(next.cacheMb));
         setHasKey(res.hasKey);
         setHasGeminiKey(Boolean(res.hasGeminiKey));
-        setCache(stats);
+        setOutOfSync(diff);
+        setCache({ files: totalFiles, bytes: totalBytes });
         setError(null);
       })
       .catch((err) => {
@@ -147,7 +236,7 @@ export function MinimaxSpeechSettingsSection() {
     return () => {
       cancelled = true;
     };
-  }, [prepared]);
+  }, [prepared, canManage, scopedEnvironments, writableEnvIds]);
 
   const parsedCacheMb = Number(cacheMbText.trim());
   const validCacheMb =
@@ -157,6 +246,7 @@ export function MinimaxSpeechSettingsSection() {
     parsedCacheMb <= 100_000;
 
   const dirty =
+    outOfSync ||
     Boolean(apiKey.trim()) ||
     Boolean(geminiApiKey.trim()) ||
     form.provider !== saved.provider ||
@@ -170,7 +260,13 @@ export function MinimaxSpeechSettingsSection() {
     cacheMbText.trim() !== String(saved.cacheMb);
 
   const handleSave = async (options?: { clearKey?: boolean; clearGeminiKey?: boolean }) => {
-    if (!prepared || !canManage) return;
+    const targets = resolveTargetConnections(
+      prepared,
+      canManage,
+      scopedEnvironments,
+      writableEnvIds,
+    );
+    if (!prepared || !canManage || targets.length === 0) return;
     if (!validCacheMb) {
       setStatus(null);
       setError("Cache limit must be a whole number between 1 and 100000 MB");
@@ -192,17 +288,19 @@ export function MinimaxSpeechSettingsSection() {
         auto: form.auto,
         cacheMb,
       };
-      await runEnvironmentSpeech(
-        saveEnvironmentTtsSettings(prepared, {
-          ...next,
-          ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-          ...(options?.clearKey ? { clearKey: true } : {}),
-          ...(geminiApiKey.trim() ? { geminiApiKey: geminiApiKey.trim() } : {}),
-          ...(options?.clearGeminiKey ? { clearGeminiKey: true } : {}),
-        }),
+      const payload = {
+        ...next,
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        ...(options?.clearKey ? { clearKey: true } : {}),
+        ...(geminiApiKey.trim() ? { geminiApiKey: geminiApiKey.trim() } : {}),
+        ...(options?.clearGeminiKey ? { clearGeminiKey: true } : {}),
+      };
+      await Promise.all(
+        targets.map((conn) => runEnvironmentSpeech(saveEnvironmentTtsSettings(conn, payload))),
       );
       setSaved(next);
       setForm(next);
+      setOutOfSync(false);
       setCacheMbText(String(next.cacheMb));
       if (options?.clearKey) setHasKey(false);
       else if (apiKey.trim()) setHasKey(true);
@@ -210,10 +308,26 @@ export function MinimaxSpeechSettingsSection() {
       else if (geminiApiKey.trim()) setHasGeminiKey(true);
       setApiKey("");
       setGeminiApiKey("");
-      const stats = await runEnvironmentSpeech(getEnvironmentTtsCacheStats(prepared));
-      setCache(stats);
-      await ttsModes.refresh(prepared).catch(() => undefined);
-      setStatus(options?.clearKey || options?.clearGeminiKey ? "API key removed" : "Saved");
+      const statsList = await Promise.all(
+        targets.map((conn) =>
+          runEnvironmentSpeech(getEnvironmentTtsCacheStats(conn)).catch(() => ({
+            files: 0,
+            bytes: 0,
+          })),
+        ),
+      );
+      setCache({
+        files: statsList.reduce((sum, item) => sum + item.files, 0),
+        bytes: statsList.reduce((sum, item) => sum + item.bytes, 0),
+      });
+      await Promise.all(targets.map((conn) => ttsModes.refresh(conn).catch(() => undefined)));
+      setStatus(
+        options?.clearKey || options?.clearGeminiKey
+          ? "API key removed"
+          : targets.length > 1
+            ? `Saved across ${targets.length} environments`
+            : "Saved",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save read-aloud settings");
     } finally {
@@ -222,7 +336,13 @@ export function MinimaxSpeechSettingsSection() {
   };
 
   const handleClearCache = async () => {
-    if (!prepared || !canManage) return;
+    const targets = resolveTargetConnections(
+      prepared,
+      canManage,
+      scopedEnvironments,
+      writableEnvIds,
+    );
+    if (!prepared || !canManage || targets.length === 0) return;
     if (!confirmClear) {
       setConfirmClear(true);
       setStatus(null);
@@ -234,11 +354,15 @@ export function MinimaxSpeechSettingsSection() {
     setStatus(null);
     setError(null);
     try {
-      const res = await runEnvironmentSpeech(clearEnvironmentTtsCache(prepared));
+      const results = await Promise.all(
+        targets.map((conn) => runEnvironmentSpeech(clearEnvironmentTtsCache(conn))),
+      );
+      const clearedFiles = results.reduce((sum, item) => sum + item.files, 0);
+      const clearedBytes = results.reduce((sum, item) => sum + item.bytes, 0);
       setCache({ files: 0, bytes: 0 });
       setStatus(
-        res.files > 0
-          ? `Cleared ${res.files} cached ${res.files === 1 ? "file" : "files"} (${formatMegabytes(res.bytes)})`
+        clearedFiles > 0
+          ? `Cleared ${clearedFiles} cached ${clearedFiles === 1 ? "file" : "files"} (${formatMegabytes(clearedBytes)})`
           : "Cache is already empty",
       );
     } catch (err) {
@@ -621,6 +745,10 @@ export function MinimaxSpeechSettingsSection() {
             <span className="text-destructive">{error}</span>
           ) : status ? (
             <span className="text-muted-foreground">{status}</span>
+          ) : outOfSync ? (
+            <span className="text-muted-foreground">
+              Settings differ across connected environments. Click Save to sync.
+            </span>
           ) : null}
         </div>
         <Button
