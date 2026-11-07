@@ -29,18 +29,17 @@ Whenever the user asks you to implement a feature, fix a bug, cherry-pick a PR, 
      ```bash
      /home/wangfh/Sync/infra/t3code-custom/sync-upstream.sh
      ```
-     *(This script fetches `upstream/main`, updates `main`, rebases all branches in `features.txt` onto `main`, merges them cleanly into `custom`, and pushes `main`, `feat/*`, and `custom` to `origin`.)*
+     _(This script fetches `upstream/main`, updates `main`, rebases all branches in `features.txt` onto `main`, merges them cleanly into `custom`, and pushes `main`, `feat/*`, and `custom` to `origin`.)_
 
-4. **Build & Deploy Locally (when asked to deploy/install)**:
-   - **Linux / macOS background daemon (`t3` CLI + server + web client)**:
+4. **Build & Deploy Across All 3 Machines (Ubuntu + Mac mini + MacBook Air)**:
+   - **Compile once on Ubuntu & auto-deploy to Ubuntu + Mac mini (`macmini-ts`) + MacBook Air (`mba-ts`)**:
      ```bash
-     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh          # stage & activate for next restart
-     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --restart # stage, activate & restart daemon immediately
+     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --all
      ```
-   - **macOS Desktop App (`/Applications/T3 Code (Beta).app` on MacBook Air)**:
+     _(Or combine step 3 + step 4 into a single command: `/home/wangfh/Sync/infra/t3code-custom/sync-upstream.sh --deploy`)_
+   - **Push already-built `dist/` artifacts to both Macs over SSH without rebuilding**:
      ```bash
-     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --desktop-only  # fast hot-patch app.asar + Info.plist + codesign (~20s, no Rust needed)
-     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --desktop-full  # full electron-builder .app rebuild
+     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --push-macs
      ```
    - **Rollback to official release**:
      ```bash
@@ -48,7 +47,6 @@ Whenever the user asks you to implement a feature, fix a bug, cherry-pick a PR, 
      ```
 
 ---
-
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Kiro) and serves web, desktop, and mobile clients.
 
