@@ -2,7 +2,7 @@ import { encodeSpeechPcmRequest } from "@t3tools/shared/speech";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { CloudSpeechError, SPEECH_STREAM_PATH } from "@t3tools/contracts";
+import { CloudSpeechError, SPEECH_STREAM_PATH, TtsSynthesisError } from "@t3tools/contracts";
 import type {
   CloudSpeechModelId,
   CloudSpeechProvider,
@@ -11,6 +11,10 @@ import type {
   SpeechModelUnloadTimeout,
   SpeechTranscriptionOptions,
   SpeechPostProcessingOptions,
+  TtsCancelRequest,
+  TtsSetChatModeRequest,
+  TtsSettingsUpdateRequest,
+  TtsSynthesizeRequest,
 } from "@t3tools/contracts";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
@@ -311,3 +315,142 @@ export const removeEnvironmentSpeechModel = (prepared: PreparedConnection, model
     path: (urls) => urls.removeModel(),
     run: ({ client, headers }) => client.removeModel({ headers, payload: { modelId } }),
   });
+
+const isTtsSynthesisError = Schema.is(TtsSynthesisError);
+
+const unwrapTtsError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.mapError((error) =>
+      typeof error === "object" &&
+      error !== null &&
+      "_tag" in error &&
+      error._tag === "RemoteEnvironmentAuthFetchError" &&
+      "cause" in error &&
+      isTtsSynthesisError(error.cause)
+        ? error.cause
+        : error,
+    ),
+  );
+
+export const getEnvironmentTtsSettings = (prepared: PreparedConnection) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "GET",
+      path: (urls) => urls.ttsSettings(),
+      run: ({ client, headers }) => client.ttsSettings({ headers }),
+    }),
+  );
+
+export const saveEnvironmentTtsSettings = (
+  prepared: PreparedConnection,
+  payload: TtsSettingsUpdateRequest,
+) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "POST",
+      path: (urls) => urls.saveTtsSettings(),
+      run: ({ client, headers }) => client.saveTtsSettings({ headers, payload }),
+    }),
+  );
+
+export const getEnvironmentTtsCacheStats = (prepared: PreparedConnection) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "GET",
+      path: (urls) => urls.ttsCacheStats(),
+      run: ({ client, headers }) => client.ttsCacheStats({ headers }),
+    }),
+  );
+
+export const clearEnvironmentTtsCache = (prepared: PreparedConnection) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "POST",
+      path: (urls) => urls.clearTtsCache(),
+      run: ({ client, headers }) => client.clearTtsCache({ headers }),
+    }),
+  );
+
+export const getEnvironmentTtsModes = (prepared: PreparedConnection) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "GET",
+      path: (urls) => urls.ttsModes(),
+      run: ({ client, headers }) => client.ttsModes({ headers }),
+    }),
+  );
+
+export const setEnvironmentTtsChatMode = (
+  prepared: PreparedConnection,
+  payload: TtsSetChatModeRequest,
+) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "POST",
+      path: (urls) => urls.setTtsChatMode(),
+      run: ({ client, headers }) => client.setTtsChatMode({ headers, payload }),
+    }),
+  );
+
+export const getEnvironmentTtsReplies = (prepared: PreparedConnection) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "GET",
+      path: (urls) => urls.ttsReplies(),
+      run: ({ client, headers }) => client.ttsReplies({ headers }),
+    }),
+  );
+
+export const getEnvironmentTtsSpeechStatus = (prepared: PreparedConnection, id: string) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "GET",
+      path: (urls) => urls.ttsSpeechStatus({ query: { id } }),
+      run: ({ client, headers }) => client.ttsSpeechStatus({ headers, query: { id } }),
+    }),
+  );
+
+export const synthesizeEnvironmentTts = (
+  prepared: PreparedConnection,
+  payload: TtsSynthesizeRequest,
+) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "POST",
+      timeoutMs: INFERENCE_OR_DOWNLOAD_TIMEOUT_MS,
+      path: (urls) => urls.synthesizeTts(),
+      run: ({ client, headers }) => client.synthesizeTts({ headers, payload }),
+    }),
+  );
+
+export const cancelEnvironmentTts = (
+  prepared: PreparedConnection,
+  payload: TtsCancelRequest = {},
+) =>
+  unwrapTtsError(
+    request({
+      group: "voice",
+      prepared,
+      method: "POST",
+      path: (urls) => urls.cancelTts(),
+      run: ({ client, headers }) => client.cancelTts({ headers, payload }),
+    }),
+  );

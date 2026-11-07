@@ -25,6 +25,7 @@ import {
 } from "../auth/http.ts";
 import * as SpeechPostProcessing from "./postProcessing.ts";
 import * as CloudSpeech from "./CloudSpeech.ts";
+import * as MinimaxTts from "./MinimaxTts.ts";
 import * as SpeechService from "./SpeechService.ts";
 
 const MAX_TRANSCRIBE_BODY_BYTES = SpeechService.MAX_SPEECH_BYTES + SPEECH_MAX_OPTIONS_BYTES + 4;
@@ -71,6 +72,11 @@ export const speechHttpApiLayer = HttpApiBuilder.group(
     const speech = yield* SpeechService.SpeechService;
     const cloud = yield* CloudSpeech.CloudSpeech;
     const postProcessing = yield* SpeechPostProcessing.SpeechPostProcessing;
+    const minimaxOption = yield* Effect.serviceOption(MinimaxTts.MinimaxTts);
+    const minimax =
+      minimaxOption._tag === "Some"
+        ? minimaxOption.value
+        : yield* Effect.provide(MinimaxTts.MinimaxTts, MinimaxTts.layer);
     const guard = Effect.fnUntraced(function* (
       endpoint: string,
       scope: AuthEnvironmentScope = AuthOrchestrationOperateScope,
@@ -227,6 +233,76 @@ export const speechHttpApiLayer = HttpApiBuilder.group(
           return yield* postProcessing
             .process(args.payload)
             .pipe(Effect.catch((error) => failEnvironmentInternal("internal_error", error)));
+        }),
+      )
+      .handle(
+        "ttsSettings",
+        Effect.fn("environment.voice.ttsSettings")(function* (args) {
+          yield* guard(args.endpoint.name);
+          return yield* minimax.getSettings;
+        }),
+      )
+      .handle(
+        "saveTtsSettings",
+        Effect.fn("environment.voice.saveTtsSettings")(function* (args) {
+          yield* guard(args.endpoint.name, AuthSettingsWriteScope);
+          return yield* minimax.saveSettings(args.payload);
+        }),
+      )
+      .handle(
+        "ttsCacheStats",
+        Effect.fn("environment.voice.ttsCacheStats")(function* (args) {
+          yield* guard(args.endpoint.name);
+          return yield* minimax.cacheStats;
+        }),
+      )
+      .handle(
+        "clearTtsCache",
+        Effect.fn("environment.voice.clearTtsCache")(function* (args) {
+          yield* guard(args.endpoint.name, AuthSettingsWriteScope);
+          return yield* minimax.clearCache;
+        }),
+      )
+      .handle(
+        "ttsModes",
+        Effect.fn("environment.voice.ttsModes")(function* (args) {
+          yield* guard(args.endpoint.name);
+          return yield* minimax.getModes;
+        }),
+      )
+      .handle(
+        "setTtsChatMode",
+        Effect.fn("environment.voice.setTtsChatMode")(function* (args) {
+          yield* guard(args.endpoint.name);
+          return yield* minimax.setChatMode(args.payload);
+        }),
+      )
+      .handle(
+        "ttsReplies",
+        Effect.fn("environment.voice.ttsReplies")(function* (args) {
+          yield* guard(args.endpoint.name);
+          return yield* minimax.listReplies;
+        }),
+      )
+      .handle(
+        "ttsSpeechStatus",
+        Effect.fn("environment.voice.ttsSpeechStatus")(function* (args) {
+          yield* guard(args.endpoint.name);
+          return yield* minimax.speechStatus(args.query);
+        }),
+      )
+      .handle(
+        "synthesizeTts",
+        Effect.fn("environment.voice.synthesizeTts")(function* (args) {
+          yield* guard(args.endpoint.name);
+          return yield* minimax.synthesize(args.payload);
+        }),
+      )
+      .handle(
+        "cancelTts",
+        Effect.fn("environment.voice.cancelTts")(function* (args) {
+          yield* guard(args.endpoint.name);
+          return yield* minimax.cancelSpeech(args.payload);
         }),
       );
   }),
