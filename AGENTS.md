@@ -1,5 +1,55 @@
 # T3 Code
 
+## Personal Fork (`wangfh5/t3code`) Development & Deployment SOP (MANDATORY)
+
+This repository (`~/Projects/t3code`) is the user's personal custom fork of `pingdotgg/t3code` (`origin` = `git@github.com:wangfh5/t3code.git`, `upstream` = `https://github.com/pingdotgg/t3code.git`).
+Whenever the user asks you to implement a feature, fix a bug, cherry-pick a PR, or deploy changes, follow this exact workflow automatically without asking the user for file paths or branch setup:
+
+1. **Branching Rules**:
+   - **`main`**: Must remain 100% identical to `upstream/main`. **NEVER commit directly to `main`.**
+   - **`feat/<name>`**: Every custom feature or cherry-picked PR MUST live on its own dedicated `feat/<name>` branch created off `origin/main` (not off `custom`), so features remain orthogonal:
+     ```bash
+     git fetch origin main
+     git checkout -B feat/<feature-name> origin/main
+     ```
+   - **`custom`**: The disposable integration and deployment branch. Never develop directly on `custom`; it is automatically rebuilt by merging all active `feat/*` branches into `main`.
+
+2. **Implement, Verify & Push Feature Branch**:
+   - Implement the change, run focused tests (`vp test run <path>`) and typecheck (`vp run typecheck`).
+   - Commit and push your feature branch to `origin`:
+     ```bash
+     git add -A
+     git commit -m "feat(<scope>): <description>"
+     git push -u origin HEAD:feat/<feature-name>
+     ```
+
+3. **Register Feature & Rebuild `custom` Branch**:
+   - Active feature branches are listed (one per line) in `/home/wangfh/Sync/infra/t3code-custom/features.txt`.
+   - Ensure `feat/<feature-name>` is listed in `/home/wangfh/Sync/infra/t3code-custom/features.txt`, then run:
+     ```bash
+     /home/wangfh/Sync/infra/t3code-custom/sync-upstream.sh
+     ```
+     *(This script fetches `upstream/main`, updates `main`, rebases all branches in `features.txt` onto `main`, merges them cleanly into `custom`, and pushes `main`, `feat/*`, and `custom` to `origin`.)*
+
+4. **Build & Deploy Locally (when asked to deploy/install)**:
+   - **Linux / macOS background daemon (`t3` CLI + server + web client)**:
+     ```bash
+     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh          # stage & activate for next restart
+     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --restart # stage, activate & restart daemon immediately
+     ```
+   - **macOS Desktop App (`/Applications/T3 Code (Beta).app` on MacBook Air)**:
+     ```bash
+     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --desktop-only  # fast hot-patch app.asar + Info.plist + codesign (~20s, no Rust needed)
+     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --desktop-full  # full electron-builder .app rebuild
+     ```
+   - **Rollback to official release**:
+     ```bash
+     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --rollback 0.1.7 [--desktop] [--restart]
+     ```
+
+---
+
+
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Kiro) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
