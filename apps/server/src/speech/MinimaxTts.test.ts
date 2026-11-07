@@ -7,12 +7,16 @@ import { DEFAULT_TTS_SETTINGS } from "@t3tools/contracts";
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import {
   audioCache,
+  cleanTextForTts,
   createMinimaxTtsRuntime,
+  detectAudioMimeType,
   finalReply,
+  isWavBytes,
   mp3Frames,
   renderSpeech,
   settingsStore,
   splitText,
+  wrapWavPcm,
 } from "./MinimaxTts.ts";
 
 afterEach(() => {
@@ -55,7 +59,20 @@ describe("finalReply", () => {
   });
 });
 
-describe("splitText", () => {
+describe("cleanTextForTts & splitText", () => {
+  test("strips markdown link targets and keeps only link labels", () => {
+    const input =
+      "已基于你最新的 [statement.tex](file:///Users/ssqc/Sync/Documents/WFH-PersonalOffice/Resume-CV/CV_zh_academic_full/statement.tex) 进行了润色并重新编译了 [CV.pdf](file:///Users/ssqc/Sync/Documents/WFH-PersonalOffice/Resume-CV/CV_zh_academic_full/CV.pdf)：";
+    expect(cleanTextForTts(input)).toBe(
+      "已基于你最新的 statement.tex 进行了润色并重新编译了 CV.pdf：",
+    );
+    expect(
+      cleanTextForTts(
+        "请查看 [`SidebarNowPlaying`](file:///home/wangfh/Projects/t3code/SidebarNowPlaying.tsx#L10-L20) 和 [文档](https://example.com/docs(v1))。",
+      ),
+    ).toBe("请查看 SidebarNowPlaying 和 文档。");
+  });
+
   test("splits long text along natural boundaries", () => {
     const chunk = `${"今天天气不错，我们去散步吧。".repeat(120)}\n\n${"第二段内容继续展开。".repeat(120)}`;
     const parts = splitText(chunk);
@@ -83,7 +100,7 @@ describe("mp3Frames", () => {
 });
 
 describe("renderSpeech", () => {
-  test("calls MiniMax t2a_v2 and decodes hex audio", async () => {
+  test("calls MiniMax t2a_v2 with cleaned markdown links and decodes hex audio", async () => {
     const seen: Array<{ url: string; body: unknown; auth: string | null }> = [];
     vi.stubGlobal(
       "fetch",
@@ -105,7 +122,7 @@ describe("renderSpeech", () => {
     );
 
     const bytes = await renderSpeech({
-      text: "你好，世界",
+      text: "你好，[statement.tex](file:///path/to/statement.tex)",
       settings: {
         ...DEFAULT_TTS_SETTINGS,
         apiKey: "secret-key",
@@ -120,7 +137,7 @@ describe("renderSpeech", () => {
         auth: "Bearer secret-key",
         body: {
           model: DEFAULT_TTS_SETTINGS.model,
-          text: "你好，世界",
+          text: "你好，statement.tex",
           stream: false,
           voice_setting: {
             voice_id: DEFAULT_TTS_SETTINGS.voice,
@@ -133,6 +150,84 @@ describe("renderSpeech", () => {
             bitrate: 128_000,
             format: "mp3",
             channel: 1,
+          },
+        },
+      },
+    ]);
+  });
+
+  test("calls Gemini 3.8 TTS generateContent and returns valid WAV audio", async () => {
+    const seen: Array<{ url: string; body: unknown; apiKey: string | null }> = [];
+    const wavInput = wrapWavPcm(new Uint8Array([1, 2, 3, 4]), 24_000, 1, 16);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        seen.push({
+          url: String(input),
+          body: JSON.parse(String(init?.body ?? "{}")),
+          apiKey: headers.get("x-goog-api-key"),
+        });
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: "audio/wav",
+                        data: Buffer.from(wavInput).toString("base64"),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const bytes = await renderSpeech({
+      text: "已编译 [CV.pdf](file:///Users/ssqc/CV.pdf)",
+      settings: {
+        ...DEFAULT_TTS_SETTINGS,
+        provider: "gemini",
+        geminiApiKey: "AIza-test-key",
+        geminiModel: "gemini-3.8-flash-lite-tts",
+        geminiVoice: "Kore",
+        geminiStyle: "warm and calm",
+        chats: {},
+      },
+    });
+
+    expect(isWavBytes(bytes)).toBe(true);
+    expect(detectAudioMimeType(bytes)).toBe("audio/wav");
+    expect(seen).toEqual([
+      {
+        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite-tts:generateContent",
+        apiKey: "AIza-test-key",
+        body: {
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: "已编译 CV.pdf",
+                  speechMetadata: { style: "warm and calm" },
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                voice: "Kore",
+              },
+            },
           },
         },
       },
@@ -190,20 +285,30 @@ describe("renderSpeech", () => {
 });
 
 describe("settingsStore", () => {
-  test("persists settings with owner-only permissions and supports clearing key", async () => {
+  test("persists settings with owner-only permissions and supports clearing keys", async () => {
     const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "minimax-tts-"));
     try {
       const store = settingsStore(dir);
       const first = await store.write({
+        provider: "gemini",
         apiKey: "key-1",
+        geminiApiKey: "gemini-key-1",
         region: "global",
         voice: "English_CalmWoman",
+        geminiModel: "gemini-3.8-flash-tts",
+        geminiVoice: "Aoede",
+        geminiStyle: "friendly",
         auto: "play",
         cacheMb: 256,
       });
+      expect(first.provider).toBe("gemini");
       expect(first.apiKey).toBe("key-1");
+      expect(first.geminiApiKey).toBe("gemini-key-1");
       expect(first.region).toBe("global");
       expect(first.voice).toBe("English_CalmWoman");
+      expect(first.geminiModel).toBe("gemini-3.8-flash-tts");
+      expect(first.geminiVoice).toBe("Aoede");
+      expect(first.geminiStyle).toBe("friendly");
       expect(first.auto).toBe("play");
       expect(first.cacheMb).toBe(256);
 
@@ -212,6 +317,7 @@ describe("settingsStore", () => {
 
       const second = await store.write({ model: "speech-2.8-turbo" });
       expect(second.apiKey).toBe("key-1");
+      expect(second.geminiApiKey).toBe("gemini-key-1");
       expect(second.model).toBe("speech-2.8-turbo");
 
       const chatUpdated = await store.setChat("thread-1", "synthesize");
@@ -227,8 +333,9 @@ describe("settingsStore", () => {
         "Cache limit must be a whole number between 1 and 100000 MB",
       );
 
-      const cleared = await store.write({ clearKey: true });
+      const cleared = await store.write({ clearKey: true, clearGeminiKey: true });
       expect(cleared.apiKey).toBeUndefined();
+      expect(cleared.geminiApiKey).toBeUndefined();
     } finally {
       await NodeFSP.rm(dir, { recursive: true, force: true });
     }
@@ -347,6 +454,7 @@ describe("createMinimaxTtsRuntime", () => {
 
       const synthesized = await runtime.synthesize({ id: "msg-1" });
       expect(Buffer.from(synthesized.base64, "base64").toString("utf8")).toBe("auto-mp3");
+      expect(synthesized.mimeType).toBe("audio/mpeg");
       expect(await runtime.speechStatus({ id: "msg-1" })).toEqual({ state: "ready" });
 
       const older = await runtime.synthesize({ id: "older-msg", threadId: "thread-1" });

@@ -9,6 +9,7 @@ import {
   DEFAULT_TTS_SETTINGS,
   type EnvironmentId,
   type TtsAuto,
+  type TtsMimeType,
   type TtsReplyRecord,
 } from "@t3tools/contracts";
 import { useEffect, useSyncExternalStore } from "react";
@@ -288,7 +289,7 @@ export function startAutoplay(input: {
     id: string,
     threadId?: string,
     text?: string,
-  ) => Promise<{ base64: string; mimeType: "audio/mpeg" }>;
+  ) => Promise<{ base64: string; mimeType: TtsMimeType }>;
   player: AutoPlayer;
   environmentId?: EnvironmentId | undefined;
   intervalMs?: number | undefined;
