@@ -132,6 +132,7 @@ import { toastManager } from "../ui/toast";
 import { MicrophoneOrderList } from "./MicrophoneOrderList";
 import { MicrophoneTest } from "./MicrophoneTest";
 import { CloudVoiceConfiguration } from "./CloudVoiceConfiguration";
+import { MinimaxSpeechSettingsSection } from "./MinimaxSpeechSettingsSection";
 import { ModelBenchmarks, orderSpeechLanguages } from "./SpeechModelComparison";
 import { languageLabel, SpeechLanguageSelect } from "./SpeechLanguageSelect";
 import { filterSpeechModels, type SpeechModelSort } from "./speechModelBrowser";
@@ -1919,6 +1920,8 @@ export function VoiceSettingsPanel() {
           />
         ) : null}
       </SettingsSection>
+
+      <MinimaxSpeechSettingsSection />
     </SettingsPageContainer>
   );
 }

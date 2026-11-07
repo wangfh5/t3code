@@ -716,6 +716,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("test voice speech model transcription recognition")],
   },
   {
+    id: "minimax-speech",
+    title: "MiniMax speech",
+    to: "/settings/voice",
+    searchTerms: [
+      "minimax speech tts text to speech read aloud voice synthesis autoplay cache api key",
+    ],
+  },
+  {
     id: "auto-settle-inactive-threads",
     title: msg("Auto-settle inactive threads"),
     to: "/settings/threads",
