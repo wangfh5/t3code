@@ -11,7 +11,9 @@ import {
   TtsSynthesisError,
   type TtsAuto,
   type TtsCacheStats,
+  type TtsMimeType,
   type TtsModesResponse,
+  type TtsProvider,
   type TtsRegion,
   type TtsReplyRecord,
   type TtsSettings,
@@ -33,6 +35,7 @@ import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
 export interface StoredTtsSettings extends TtsSettings {
   apiKey?: string | undefined;
+  geminiApiKey?: string | undefined;
   chats: Record<string, TtsAuto>;
 }
 
@@ -42,6 +45,9 @@ const MAX_REPLIES = 20;
 
 const isAuto = (value: unknown): value is TtsAuto =>
   value === "off" || value === "synthesize" || value === "play";
+
+const isProvider = (value: unknown): value is TtsProvider =>
+  value === "minimax" || value === "gemini";
 
 function parseCacheMb(value: unknown) {
   if (typeof value !== "number" || !Number.isInteger(value)) return undefined;
@@ -80,7 +86,12 @@ export function settingsStore(dir = DEFAULT_BASE_DIR) {
           ? "synthesize"
           : DEFAULT_TTS_SETTINGS.auto;
       return {
+        provider: isProvider(raw.provider) ? raw.provider : DEFAULT_TTS_SETTINGS.provider,
         apiKey: typeof raw.apiKey === "string" && raw.apiKey.trim() ? raw.apiKey.trim() : undefined,
+        geminiApiKey:
+          typeof raw.geminiApiKey === "string" && raw.geminiApiKey.trim()
+            ? raw.geminiApiKey.trim()
+            : undefined,
         model:
           typeof raw.model === "string" && raw.model.trim()
             ? raw.model.trim()
@@ -91,6 +102,18 @@ export function settingsStore(dir = DEFAULT_BASE_DIR) {
             : DEFAULT_TTS_SETTINGS.voice,
         region:
           raw.region === "global" || raw.region === "cn" ? raw.region : DEFAULT_TTS_SETTINGS.region,
+        geminiModel:
+          typeof raw.geminiModel === "string" && raw.geminiModel.trim()
+            ? raw.geminiModel.trim()
+            : DEFAULT_TTS_SETTINGS.geminiModel,
+        geminiVoice:
+          typeof raw.geminiVoice === "string" && raw.geminiVoice.trim()
+            ? raw.geminiVoice.trim()
+            : DEFAULT_TTS_SETTINGS.geminiVoice,
+        geminiStyle:
+          typeof raw.geminiStyle === "string"
+            ? raw.geminiStyle.trim()
+            : DEFAULT_TTS_SETTINGS.geminiStyle,
         auto,
         cacheMb: parseCacheMb(raw.cacheMb) ?? DEFAULT_TTS_SETTINGS.cacheMb,
         chats: parseChats(raw.chats, raw.chatAuto),
@@ -121,26 +144,41 @@ export function settingsStore(dir = DEFAULT_BASE_DIR) {
   };
 
   const write = (input: {
+    provider?: TtsProvider;
     apiKey?: string;
     clearKey?: boolean;
+    geminiApiKey?: string;
+    clearGeminiKey?: boolean;
     model?: string;
     voice?: string;
     region?: TtsRegion;
+    geminiModel?: string;
+    geminiVoice?: string;
+    geminiStyle?: string;
     auto?: TtsAuto;
     cacheMb?: number;
   }) =>
     run(async () => {
       const current = await read();
       const apiKey = input.clearKey ? undefined : input.apiKey?.trim() || current.apiKey;
+      const geminiApiKey = input.clearGeminiKey
+        ? undefined
+        : input.geminiApiKey?.trim() || current.geminiApiKey;
       const cacheMb = input.cacheMb === undefined ? current.cacheMb : parseCacheMb(input.cacheMb);
       if (!cacheMb) {
         throw new Error(`Cache limit must be a whole number between 1 and ${MAX_CACHE_MB} MB`);
       }
       return commit({
+        provider: input.provider ?? current.provider,
         apiKey,
+        geminiApiKey,
         model: input.model?.trim() || current.model,
         voice: input.voice?.trim() || current.voice,
         region: input.region ?? current.region,
+        geminiModel: input.geminiModel?.trim() || current.geminiModel,
+        geminiVoice: input.geminiVoice?.trim() || current.geminiVoice,
+        geminiStyle:
+          input.geminiStyle !== undefined ? input.geminiStyle.trim() : current.geminiStyle,
         auto: input.auto ?? current.auto,
         cacheMb,
         chats: current.chats,
@@ -290,6 +328,8 @@ const HOSTS: Record<TtsRegion, string> = {
   global: "https://api.minimax.io/v1/t2a_v2",
 };
 
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+
 const LIMIT = 2_000;
 const TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 24 * 1024 * 1024;
@@ -309,8 +349,50 @@ interface MinimaxResponse {
   base_resp?: { status_code?: number; status_msg?: string };
 }
 
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        inlineData?: {
+          mimeType?: string;
+          data?: string;
+        };
+      }>;
+    };
+  }>;
+  error?: {
+    message?: string;
+    code?: number;
+  };
+}
+
+/**
+ * Cleans markdown links, image references, raw URLs, and inline backticks so TTS reads
+ * only human-friendly labels (e.g. `[statement.tex](file:///...)` -> `statement.tex`).
+ */
+export function cleanTextForTts(input: string): string {
+  return (
+    input
+      // Markdown images: ![alt](url) -> alt
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      // Markdown links (including code-wrapped labels like [`ClassName`](file:///...)): [label](url) -> label
+      .replace(/\[([^\]]+)\]\((?:[^()\s]+|\([^()\s]*\))+\)/g, "$1")
+      // Angle-bracket autolinks: <https://...> or <file:///...>
+      .replace(/<(?:https?|file|mailto):[^>]+>/gi, "")
+      // Bare file:// URLs -> keep only basename
+      .replace(/\bfile:\/\/[^\s)>\]"'`]+/gi, (match) => {
+        const withoutHash = match.split("#")[0] ?? match;
+        const segments = withoutHash.split("/").filter(Boolean);
+        return segments[segments.length - 1] ?? "";
+      })
+      // Unwrap inline code backticks around short labels
+      .replace(/`([^`\n]+)`/g, "$1")
+      .trim()
+  );
+}
+
 export function splitText(input: string): string[] {
-  const text = input.trim();
+  const text = cleanTextForTts(input);
   if (!text) return [];
   if (text.length <= LIMIT) return [text];
 
@@ -321,7 +403,9 @@ export function splitText(input: string): string[] {
     const cut =
       Math.max(slice.lastIndexOf("\n\n"), slice.lastIndexOf("\n")) >= LIMIT * 0.4
         ? Math.max(slice.lastIndexOf("\n\n"), slice.lastIndexOf("\n")) + 1
-        : (findBreak(slice, /[.!?。！？；;]/g) ?? findBreak(slice, /[,，、：:\s]/g) ?? LIMIT);
+        : (findBreak(slice, /[.!?\u3002\uff01\uff1f\uff1b;]/g) ??
+          findBreak(slice, /[,\uff0c\u3001\uff1a:\s]/g) ??
+          LIMIT);
     const head = rest.slice(0, cut).trim();
     if (head) parts.push(head);
     rest = rest.slice(cut).trimStart();
@@ -405,10 +489,122 @@ export function mp3Frames(bytes: Uint8Array) {
   return offset > 0 ? bytes.subarray(offset) : bytes;
 }
 
-async function readBody(res: Response) {
+export function isWavBytes(bytes: Uint8Array) {
+  return (
+    bytes.byteLength >= 44 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x41 &&
+    bytes[10] === 0x56 &&
+    bytes[11] === 0x45
+  );
+}
+
+export function detectAudioMimeType(bytes: Uint8Array): TtsMimeType {
+  return isWavBytes(bytes) ? "audio/wav" : "audio/mpeg";
+}
+
+function parseWavPcm(bytes: Uint8Array): {
+  pcm: Uint8Array;
+  sampleRate: number;
+  channels: number;
+  bitsPerSample: number;
+} {
+  if (!isWavBytes(bytes)) {
+    return { pcm: bytes, sampleRate: 24_000, channels: 1, bitsPerSample: 16 };
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let channels = 1;
+  let sampleRate = 24_000;
+  let bitsPerSample = 16;
+  let offset = 12;
+  while (offset + 8 <= bytes.byteLength) {
+    const id = String.fromCharCode(
+      bytes[offset] ?? 0,
+      bytes[offset + 1] ?? 0,
+      bytes[offset + 2] ?? 0,
+      bytes[offset + 3] ?? 0,
+    );
+    const chunkSize = view.getUint32(offset + 4, true);
+    const dataOffset = offset + 8;
+    if (id === "fmt " && chunkSize >= 16 && dataOffset + 16 <= bytes.byteLength) {
+      channels = view.getUint16(dataOffset + 2, true) || 1;
+      sampleRate = view.getUint32(dataOffset + 4, true) || 24_000;
+      bitsPerSample = view.getUint16(dataOffset + 14, true) || 16;
+    } else if (id === "data") {
+      const end = Math.min(bytes.byteLength, dataOffset + chunkSize);
+      return {
+        pcm: bytes.subarray(dataOffset, end),
+        sampleRate,
+        channels,
+        bitsPerSample,
+      };
+    }
+    offset = dataOffset + chunkSize + (chunkSize % 2);
+  }
+  return {
+    pcm: bytes.subarray(44),
+    sampleRate,
+    channels,
+    bitsPerSample,
+  };
+}
+
+export function wrapWavPcm(
+  pcm: Uint8Array,
+  sampleRate = 24_000,
+  channels = 1,
+  bitsPerSample = 16,
+): Uint8Array {
+  const header = new Uint8Array(44);
+  const view = new DataView(header.buffer);
+  const byteRate = sampleRate * channels * (bitsPerSample >> 3);
+  const blockAlign = channels * (bitsPerSample >> 3);
+  header.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
+  view.setUint32(4, 36 + pcm.byteLength, true);
+  header.set([0x57, 0x41, 0x56, 0x45], 8); // "WAVE"
+  header.set([0x66, 0x6d, 0x74, 0x20], 12); // "fmt "
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  header.set([0x64, 0x61, 0x74, 0x61], 36); // "data"
+  view.setUint32(40, pcm.byteLength, true);
+  return concatBytes([header, pcm]);
+}
+
+function joinWavChunks(chunks: Uint8Array[]): Uint8Array {
+  if (chunks.length === 0) return new Uint8Array(0);
+  if (chunks.length === 1) {
+    const single = chunks[0]!;
+    return isWavBytes(single) ? single : wrapWavPcm(single);
+  }
+  let sampleRate = 24_000;
+  let channels = 1;
+  let bitsPerSample = 16;
+  const pcmParts: Uint8Array[] = [];
+  for (const [idx, chunk] of chunks.entries()) {
+    const parsed = parseWavPcm(chunk);
+    if (idx === 0) {
+      sampleRate = parsed.sampleRate;
+      channels = parsed.channels;
+      bitsPerSample = parsed.bitsPerSample;
+    }
+    pcmParts.push(parsed.pcm);
+  }
+  return wrapWavPcm(concatBytes(pcmParts), sampleRate, channels, bitsPerSample);
+}
+
+async function readBody(res: Response, providerLabel = "TTS") {
   const length = Number(res.headers.get("content-length") ?? "0");
   if (length > MAX_RESPONSE_BYTES) {
-    throw new Error("MiniMax response exceeded maximum allowed size");
+    throw new Error(`${providerLabel} response exceeded maximum allowed size`);
   }
   if (!res.body) return "";
   const reader = res.body.getReader();
@@ -421,11 +617,116 @@ async function readBody(res: Response) {
     total += value.byteLength;
     if (total > MAX_RESPONSE_BYTES) {
       await reader.cancel().catch(() => undefined);
-      throw new Error("MiniMax response exceeded maximum allowed size");
+      throw new Error(`${providerLabel} response exceeded maximum allowed size`);
     }
     chunks.push(value);
   }
   return new TextDecoder().decode(concatBytes(chunks));
+}
+
+async function renderGeminiSpeech(input: {
+  parts: string[];
+  settings: StoredTtsSettings;
+  signal?: AbortSignal | undefined;
+  partKey?: ((index: number, count: number) => string) | undefined;
+  readPart?: ((key: string) => Promise<Uint8Array | undefined>) | undefined;
+  writePart?: ((key: string, bytes: Uint8Array) => Promise<void>) | undefined;
+}) {
+  const apiKey = input.settings.geminiApiKey?.trim();
+  if (!apiKey) {
+    throw new Error("Add your Google AI Studio API key in Settings \u2192 Voice first");
+  }
+  const model = input.settings.geminiModel?.trim() || DEFAULT_TTS_SETTINGS.geminiModel;
+  const voice = input.settings.geminiVoice?.trim() || DEFAULT_TTS_SETTINGS.geminiVoice;
+  const style = input.settings.geminiStyle?.trim() || "";
+  const isGemini38 = model.startsWith("gemini-3.8");
+
+  const wavChunks: Uint8Array[] = [];
+  for (const [index, part] of input.parts.entries()) {
+    const key = input.parts.length > 1 ? input.partKey?.(index, input.parts.length) : undefined;
+    const cached = key ? await input.readPart?.(key) : undefined;
+    if (cached) {
+      wavChunks.push(cached);
+      continue;
+    }
+
+    const timer = new AbortController();
+    const onAbort = () => timer.abort();
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    const timeout = setTimeout(() => timer.abort(), TIMEOUT_MS);
+    let res: Response;
+    let raw: string;
+
+    const partPayload: Record<string, unknown> = isGemini38
+      ? {
+          text: part,
+          ...(style ? { speechMetadata: { style } } : {}),
+        }
+      : {
+          text: style ? `${style}: ${part}` : part,
+        };
+
+    const voiceConfig: Record<string, unknown> = isGemini38
+      ? { voice }
+      : { prebuiltVoiceConfig: { voiceName: voice } };
+
+    try {
+      res = await fetch(`${GEMINI_BASE_URL}/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        signal: timer.signal,
+        headers: {
+          "x-goog-api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [partPayload],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig,
+            },
+          },
+        }),
+      });
+      raw = await readBody(res, "Gemini TTS");
+    } catch (err) {
+      if (input.signal?.aborted) throw new Error("Speech synthesis cancelled", { cause: err });
+      if (timer.signal.aborted)
+        throw new Error("Gemini TTS request timed out after 60s", { cause: err });
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+      input.signal?.removeEventListener("abort", onAbort);
+    }
+
+    let payload: GeminiResponse | undefined;
+    try {
+      payload = JSON.parse(raw) as GeminiResponse;
+    } catch {
+      payload = undefined;
+    }
+    if (!res.ok) {
+      throw new Error(
+        payload?.error?.message || raw.trim() || `Gemini TTS request failed (${res.status})`,
+      );
+    }
+    const inlineData = payload?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+    const base64Audio = inlineData?.data?.trim() ?? "";
+    if (!base64Audio) {
+      throw new Error("Gemini TTS returned empty audio data");
+    }
+    const rawBytes = new Uint8Array(Buffer.from(base64Audio, "base64"));
+    const wavBytes = isWavBytes(rawBytes) ? rawBytes : wrapWavPcm(rawBytes, 24_000, 1, 16);
+    if (key) await input.writePart?.(key, wavBytes);
+    wavChunks.push(wavBytes);
+  }
+
+  return joinWavChunks(wavChunks);
 }
 
 export async function renderSpeech(input: {
@@ -436,14 +737,25 @@ export async function renderSpeech(input: {
   readPart?: (key: string) => Promise<Uint8Array | undefined>;
   writePart?: (key: string, bytes: Uint8Array) => Promise<void>;
 }) {
-  const apiKey = input.settings.apiKey?.trim();
-  if (!apiKey) {
-    throw new Error("Add your MiniMax API key in Settings → Voice first");
-  }
-
   const parts = splitText(input.text);
   if (!parts.length) {
     throw new Error("Nothing to read aloud");
+  }
+
+  if (input.settings.provider === "gemini") {
+    return renderGeminiSpeech({
+      parts,
+      settings: input.settings,
+      signal: input.signal,
+      partKey: input.partKey,
+      readPart: input.readPart,
+      writePart: input.writePart,
+    });
+  }
+
+  const apiKey = input.settings.apiKey?.trim();
+  if (!apiKey) {
+    throw new Error("Add your MiniMax API key in Settings \u2192 Voice first");
   }
 
   const chunks: Uint8Array[] = [];
@@ -486,7 +798,7 @@ export async function renderSpeech(input: {
           },
         }),
       });
-      raw = await readBody(res);
+      raw = await readBody(res, "MiniMax");
     } catch (err) {
       if (input.signal?.aborted) throw new Error("Speech synthesis cancelled", { cause: err });
       if (timer.signal.aborted)
@@ -543,7 +855,20 @@ export function finalReply(turn: TurnLike) {
   return text;
 }
 
-function cacheKey(settings: { model: string; voice: string }, id: string) {
+function cacheKey(
+  settings: {
+    provider?: TtsProvider;
+    model: string;
+    voice: string;
+    geminiModel?: string;
+    geminiVoice?: string;
+    geminiStyle?: string;
+  },
+  id: string,
+) {
+  if (settings.provider === "gemini") {
+    return `gemini\0${settings.geminiModel ?? DEFAULT_TTS_SETTINGS.geminiModel}\0${settings.geminiVoice ?? DEFAULT_TTS_SETTINGS.geminiVoice}\0${settings.geminiStyle ?? ""}\0${id}`;
+  }
   return `${settings.model}\0${settings.voice}\0${id}`;
 }
 
@@ -597,12 +922,17 @@ export function createMinimaxTtsRuntime(options?: {
   const getSettings = async (): Promise<TtsSettingsResponse> => {
     const settings = await store.read();
     return {
+      provider: settings.provider,
       model: settings.model,
       voice: settings.voice,
       region: settings.region,
+      geminiModel: settings.geminiModel,
+      geminiVoice: settings.geminiVoice,
+      geminiStyle: settings.geminiStyle,
       auto: settings.auto,
       cacheMb: settings.cacheMb,
       hasKey: Boolean(settings.apiKey),
+      hasGeminiKey: Boolean(settings.geminiApiKey),
     };
   };
 
@@ -652,7 +982,7 @@ export function createMinimaxTtsRuntime(options?: {
       if (cached) {
         return {
           base64: Buffer.from(cached).toString("base64"),
-          mimeType: "audio/mpeg",
+          mimeType: detectAudioMimeType(cached),
         };
       }
       throw new Error("This reply is no longer available to synthesize");
@@ -660,7 +990,7 @@ export function createMinimaxTtsRuntime(options?: {
     const bytes = await speak(input.id, text, item?.threadId ?? input.threadId);
     return {
       base64: Buffer.from(bytes).toString("base64"),
-      mimeType: "audio/mpeg",
+      mimeType: detectAudioMimeType(bytes),
     };
   };
 
