@@ -3,6 +3,24 @@
   "iconPath": "assets/dev/blueprint-web-apple-touch-180.png",
   "scripts": [
     {
+      "name": "Sync Upstream & Rebuild Custom",
+      "command": "/home/wangfh/Sync/infra/t3code-custom/sync-upstream.sh",
+      "icon": "configure",
+      "runOnWorktreeCreate": false
+    },
+    {
+      "name": "Build & Restart Daemon",
+      "command": "/home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --restart",
+      "icon": "build",
+      "runOnWorktreeCreate": false
+    },
+    {
+      "name": "Build & Patch macOS Desktop App",
+      "command": "/home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --desktop-only",
+      "icon": "play",
+      "runOnWorktreeCreate": false
+    },
+    {
       "name": "Dev",
       "command": "vp run dev",
       "icon": "play",
