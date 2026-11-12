@@ -330,9 +330,8 @@ export function MinimaxSpeechSettingsSection() {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save read-aloud settings");
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   };
 
   const handleClearCache = async () => {
@@ -367,9 +366,8 @@ export function MinimaxSpeechSettingsSection() {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to clear audio cache");
-    } finally {
-      setClearing(false);
     }
+    setClearing(false);
   };
 
   const controlsDisabled = !prepared || !canManage || loading || saving;

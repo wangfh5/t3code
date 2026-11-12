@@ -172,9 +172,8 @@ export function AssistantSpeechControl({
       if (message !== "Speech synthesis cancelled") {
         setError(message);
       }
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   const handleSelectMode = async (next: TtsAuto | null) => {
