@@ -7,15 +7,16 @@ Whenever the user asks you to implement a feature, fix a bug, cherry-pick a PR, 
 
 1. **Branching Rules**:
    - **`main`**: Must remain 100% identical to `upstream/main`. **NEVER commit directly to `main`.**
-   - **`feat/<name>`**: Every custom feature or cherry-picked PR MUST live on its own dedicated `feat/<name>` branch created off `origin/main` (not off `custom`), so features remain orthogonal:
+   - **`feat/<name>`**: Every custom feature or cherry-picked PR MUST live on its own dedicated `feat/<name>` branch created off `origin/stable` (not off `main` or `custom`), so features remain orthogonal:
      ```bash
-     git fetch origin main
-     git checkout -B feat/<feature-name> origin/main
+     git fetch origin stable --tags
+     git checkout -b feat/<feature-name> origin/stable
      ```
-   - **`custom`**: The disposable integration and deployment branch. Never develop directly on `custom`; it is automatically rebuilt by merging all active `feat/*` branches into `main`.
+   - **`stable`**: Tracks the latest published official stable release tag (`vX.Y.Z`), excluding nightly, preview, prerelease, and draft releases. All custom features and deployments use this base. Never infer the release version from `package.json` or the locally installed runtime.
+   - **`custom`**: The disposable integration and deployment branch. Never develop directly on `custom`; it is automatically rebuilt by merging all active `feat/*` branches into `stable`.
 
 2. **Implement, Verify & Push Feature Branch**:
-   - Implement the change, run focused tests (`vp test run <path>`) and typecheck (`vp run typecheck`).
+   - Implement the change, run focused tests (`vp test run <path>`) and typecheck (`vp run check:changed origin/stable`).
    - Commit and push your feature branch to `origin`:
      ```bash
      git add -A
@@ -29,7 +30,7 @@ Whenever the user asks you to implement a feature, fix a bug, cherry-pick a PR, 
      ```bash
      /home/wangfh/Sync/infra/t3code-custom/sync-upstream.sh
      ```
-     _(This script fetches `upstream/main`, updates `main`, rebases all branches in `features.txt` onto `main`, merges them cleanly into `custom`, and pushes `main`, `feat/*`, and `custom` to `origin`.)_
+     _(This script fetches `upstream/main`, updates `main`, updates `stable` to the latest official release, rebases all branches in `features.txt` onto `stable`, merges them cleanly into `custom`, runs `vp run check:changed stable`, and pushes `main`, `stable`, `feat/*`, and `custom` to `origin`.)_
 
 4. **Build & Deploy Across All 3 Machines (Ubuntu + Mac mini + MacBook Air)**:
    - **Compile once on Ubuntu & auto-deploy to Ubuntu + Mac mini (`macmini-ts`) + MacBook Air (`mba-ts`)**:
@@ -43,7 +44,7 @@ Whenever the user asks you to implement a feature, fix a bug, cherry-pick a PR, 
      ```
    - **Rollback to official release**:
      ```bash
-     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --rollback 0.1.7 [--desktop] [--restart]
+     /home/wangfh/Sync/infra/t3code-custom/deploy-local.sh --rollback 0.1.9 [--desktop] [--restart]
      ```
 
 ---

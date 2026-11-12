@@ -3,7 +3,7 @@
   "iconPath": "assets/dev/blueprint-web-apple-touch-180.png",
   "scripts": [
     {
-      "name": "Sync Upstream & Deploy All",
+      "name": "Sync Stable & Deploy All",
       "command": "/home/wangfh/Sync/infra/t3code-custom/sync-upstream.sh --deploy",
       "icon": "configure",
       "runOnWorktreeCreate": false
