@@ -33,7 +33,7 @@ export const SidebarNowPlaying = memo(function SidebarNowPlaying() {
     connections.push(primaryPrepared);
   }
   for (const env of environments) {
-    if (env.status !== "connected" || seenEnvIds.has(env.environmentId)) continue;
+    if (env.connection.phase !== "connected" || seenEnvIds.has(env.environmentId)) continue;
     const conn = readPreparedConnection(env.environmentId);
     if (conn) {
       seenEnvIds.add(conn.environmentId);
