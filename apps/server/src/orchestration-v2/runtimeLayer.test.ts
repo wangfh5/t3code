@@ -7517,7 +7517,7 @@ it.layer(layerSharedApplicationDataPlaneTest)("pending provider interruption", (
 });
 
 it.layer(layerTest)("snooze queued runs", (it) => {
-  it.effect.each(["notification", "delegated-completion", "user"] as const)(
+  it.effect.each(["notification", "delegated-completion", "scheduled-task", "user"] as const)(
     "only user messages block snooze with a held %s run",
     (kind) =>
       Effect.gen(function* () {
@@ -7589,6 +7589,9 @@ it.layer(layerTest)("snooze queued runs", (it) => {
           dispatchMode: { type: "queue_after_active" },
           createdBy: kind === "user" ? "user" : "agent",
           creationSource: kind === "user" ? "web" : "server",
+          ...(kind === "scheduled-task"
+            ? { scheduledTaskId: ScheduledTaskId.make(`scheduled:${threadId}`) }
+            : {}),
           ...(kind === "notification"
             ? {
                 notification: {
@@ -7657,7 +7660,7 @@ it.layer(layerTest)("snooze queued runs", (it) => {
       }),
   );
 
-  it.effect.each(["notification", "user"] as const)(
+  it.effect.each(["notification", "scheduled-task", "user"] as const)(
     "a %s message on a snoozed thread keeps the snooze only when automatic",
     (kind) =>
       Effect.gen(function* () {
@@ -7695,6 +7698,9 @@ it.layer(layerTest)("snooze queued runs", (it) => {
           dispatchMode: { type: "queue_after_active" },
           createdBy: kind === "user" ? "user" : "agent",
           creationSource: kind === "user" ? "web" : "provider",
+          ...(kind === "scheduled-task"
+            ? { scheduledTaskId: ScheduledTaskId.make(`scheduled:${threadId}`) }
+            : {}),
           ...(kind === "notification"
             ? {
                 notification: {
