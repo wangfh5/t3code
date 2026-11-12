@@ -355,3 +355,148 @@ export const SpeechStreamEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("error"), message: Schema.String }),
 ]);
 export type SpeechStreamEvent = typeof SpeechStreamEvent.Type;
+
+export const TtsProvider = Schema.Literals(["minimax", "gemini"]);
+export type TtsProvider = typeof TtsProvider.Type;
+
+export const TtsRegion = Schema.Literals(["cn", "global"]);
+export type TtsRegion = typeof TtsRegion.Type;
+
+export const TtsAuto = Schema.Literals(["off", "synthesize", "play"]);
+export type TtsAuto = typeof TtsAuto.Type;
+
+export const TtsSpeechState = Schema.Literals(["idle", "working", "ready", "expired"]);
+export type TtsSpeechState = typeof TtsSpeechState.Type;
+
+export const TtsMimeType = Schema.Literals(["audio/mpeg", "audio/wav"]);
+export type TtsMimeType = typeof TtsMimeType.Type;
+
+export interface TtsSettings {
+  readonly provider: TtsProvider;
+  readonly model: string;
+  readonly voice: string;
+  readonly region: TtsRegion;
+  readonly geminiModel: string;
+  readonly geminiVoice: string;
+  readonly geminiStyle: string;
+  readonly auto: TtsAuto;
+  readonly cacheMb: number;
+}
+
+export const DEFAULT_TTS_SETTINGS: TtsSettings = {
+  provider: "minimax",
+  model: "speech-2.8-hd",
+  voice: "Chinese (Mandarin)_Warm_Girl",
+  region: "cn",
+  geminiModel: "gemini-3.8-flash-lite-tts",
+  geminiVoice: "Kore",
+  geminiStyle: "",
+  auto: "off",
+  cacheMb: 512,
+};
+
+export const TtsSettingsResponse = Schema.Struct({
+  provider: TtsProvider,
+  model: Schema.String,
+  voice: Schema.String,
+  region: TtsRegion,
+  geminiModel: Schema.String,
+  geminiVoice: Schema.String,
+  geminiStyle: Schema.String,
+  auto: TtsAuto,
+  cacheMb: Schema.Int,
+  hasKey: Schema.Boolean,
+  hasGeminiKey: Schema.Boolean,
+});
+export type TtsSettingsResponse = typeof TtsSettingsResponse.Type;
+
+export const TtsSettingsUpdateRequest = Schema.Struct({
+  provider: Schema.optionalKey(TtsProvider),
+  model: Schema.String,
+  voice: Schema.String,
+  region: TtsRegion,
+  geminiModel: Schema.optionalKey(Schema.String),
+  geminiVoice: Schema.optionalKey(Schema.String),
+  geminiStyle: Schema.optionalKey(Schema.String),
+  auto: TtsAuto,
+  cacheMb: Schema.Int,
+  apiKey: Schema.optionalKey(Schema.String),
+  clearKey: Schema.optionalKey(Schema.Boolean),
+  geminiApiKey: Schema.optionalKey(Schema.String),
+  clearGeminiKey: Schema.optionalKey(Schema.Boolean),
+});
+export type TtsSettingsUpdateRequest = typeof TtsSettingsUpdateRequest.Type;
+
+export const TtsOkResponse = Schema.Struct({
+  ok: Schema.Boolean,
+});
+export type TtsOkResponse = typeof TtsOkResponse.Type;
+
+export const TtsCacheStats = Schema.Struct({
+  files: Schema.Int,
+  bytes: Schema.Finite,
+});
+export type TtsCacheStats = typeof TtsCacheStats.Type;
+
+export const TtsModesResponse = Schema.Struct({
+  auto: TtsAuto,
+  chats: Schema.Record(Schema.String, TtsAuto),
+});
+export type TtsModesResponse = typeof TtsModesResponse.Type;
+
+export const TtsSetChatModeRequest = Schema.Struct({
+  threadId: Schema.String,
+  mode: Schema.Union([TtsAuto, Schema.Null]),
+});
+export type TtsSetChatModeRequest = typeof TtsSetChatModeRequest.Type;
+
+export const TtsReplyRecord = Schema.Struct({
+  id: Schema.String,
+  threadId: Schema.String,
+  title: Schema.String,
+  text: Schema.String,
+  createdAt: Schema.String,
+  auto: TtsAuto,
+});
+export type TtsReplyRecord = typeof TtsReplyRecord.Type;
+
+export const TtsRepliesResponse = Schema.Struct({
+  items: Schema.Array(TtsReplyRecord),
+});
+export type TtsRepliesResponse = typeof TtsRepliesResponse.Type;
+
+export const TtsSpeechStatusQuery = Schema.Struct({
+  id: Schema.String,
+});
+export type TtsSpeechStatusQuery = typeof TtsSpeechStatusQuery.Type;
+
+export const TtsSpeechStatusResponse = Schema.Struct({
+  state: TtsSpeechState,
+});
+export type TtsSpeechStatusResponse = typeof TtsSpeechStatusResponse.Type;
+
+export const TtsSynthesizeRequest = Schema.Struct({
+  id: Schema.String,
+  threadId: Schema.optionalKey(Schema.String),
+  text: Schema.optionalKey(Schema.String),
+});
+export type TtsSynthesizeRequest = typeof TtsSynthesizeRequest.Type;
+
+export const TtsSynthesizeResponse = Schema.Struct({
+  base64: Schema.String,
+  mimeType: TtsMimeType,
+});
+export type TtsSynthesizeResponse = typeof TtsSynthesizeResponse.Type;
+
+export const TtsCancelRequest = Schema.Struct({
+  id: Schema.optionalKey(Schema.String),
+});
+export type TtsCancelRequest = typeof TtsCancelRequest.Type;
+
+export class TtsSynthesisError extends Schema.TaggedError<TtsSynthesisError>()(
+  "TtsSynthesisError",
+  {
+    message: Schema.String,
+  },
+  { httpApiStatus: 422 },
+) {}

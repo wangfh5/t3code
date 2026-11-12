@@ -64,6 +64,19 @@ import {
   EnvironmentSpeechPostProcessingResult,
   EnvironmentSpeechStatus,
   EnvironmentSpeechTranscriptionResult,
+  TtsCacheStats,
+  TtsCancelRequest,
+  TtsModesResponse,
+  TtsOkResponse,
+  TtsRepliesResponse,
+  TtsSetChatModeRequest,
+  TtsSettingsResponse,
+  TtsSettingsUpdateRequest,
+  TtsSpeechStatusQuery,
+  TtsSpeechStatusResponse,
+  TtsSynthesisError,
+  TtsSynthesizeRequest,
+  TtsSynthesizeResponse,
 } from "./speech.ts";
 import { SecretReference } from "./secretReference.ts";
 import {
@@ -929,6 +942,81 @@ export class EnvironmentVoiceHttpApi extends HttpApiGroup.make("voice")
       payload: EnvironmentSpeechPostProcessingRequest,
       success: EnvironmentSpeechPostProcessingResult,
       error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("ttsSettings", "/api/voice/tts/settings", {
+      headers: OptionalBearerHeaders,
+      success: TtsSettingsResponse,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("saveTtsSettings", "/api/voice/tts/settings", {
+      headers: OptionalBearerHeaders,
+      payload: TtsSettingsUpdateRequest,
+      success: TtsOkResponse,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("ttsCacheStats", "/api/voice/tts/cache", {
+      headers: OptionalBearerHeaders,
+      success: TtsCacheStats,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("clearTtsCache", "/api/voice/tts/cache/clear", {
+      headers: OptionalBearerHeaders,
+      success: TtsCacheStats,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("ttsModes", "/api/voice/tts/modes", {
+      headers: OptionalBearerHeaders,
+      success: TtsModesResponse,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("setTtsChatMode", "/api/voice/tts/modes/chat", {
+      headers: OptionalBearerHeaders,
+      payload: TtsSetChatModeRequest,
+      success: TtsModesResponse,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("ttsReplies", "/api/voice/tts/replies", {
+      headers: OptionalBearerHeaders,
+      success: TtsRepliesResponse,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("ttsSpeechStatus", "/api/voice/tts/status", {
+      headers: OptionalBearerHeaders,
+      query: TtsSpeechStatusQuery,
+      success: TtsSpeechStatusResponse,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("synthesizeTts", "/api/voice/tts/synthesize", {
+      headers: OptionalBearerHeaders,
+      payload: TtsSynthesizeRequest,
+      success: TtsSynthesizeResponse,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("cancelTts", "/api/voice/tts/cancel", {
+      headers: OptionalBearerHeaders,
+      payload: TtsCancelRequest,
+      success: TtsOkResponse,
+      error: [...EnvironmentScopedOperationErrors, TtsSynthesisError],
     }).middleware(EnvironmentAuthenticatedAuth),
   ) {}
 
