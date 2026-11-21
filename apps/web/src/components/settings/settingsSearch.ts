@@ -717,10 +717,12 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "minimax-speech",
-    title: "Read aloud (TTS)",
+    title: msg("Read aloud (TTS)"),
     to: "/settings/voice",
     searchTerms: [
-      "read aloud tts text to speech voice synthesis autoplay cache api key minimax gemini google ai studio",
+      msg(
+        "read aloud tts text to speech voice synthesis autoplay cache api key minimax gemini google ai studio",
+      ),
     ],
   },
   {

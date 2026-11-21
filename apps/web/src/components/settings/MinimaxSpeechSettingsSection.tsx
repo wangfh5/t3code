@@ -15,6 +15,8 @@ import {
   type TtsSettings,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import { msg, T, useGT, useMessages } from "gt-react";
+import { ChevronRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ttsModes } from "../../speech/minimaxTts";
@@ -27,63 +29,63 @@ import {
   usePreparedConnection,
 } from "../../state/session";
 import { Button } from "../ui/button";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { AdvancedSettings } from "./AdvancedSettings";
-import { SettingsRow, SettingsSection } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
+import { SettingsRow, SettingsSection, useSettingsSearchTargetId } from "./settingsLayout";
+import { useSearchableSetting } from "./settingsSearch";
 import { useOptionalSettingsScope } from "./SettingsScopeContext";
 
 const PROVIDER_LABELS: Record<TtsProvider, string> = {
-  minimax: "MiniMax",
-  gemini: "Gemini TTS (Google AI Studio)",
+  minimax: msg("MiniMax"),
+  gemini: msg("Gemini TTS (Google AI Studio)"),
 };
 
 const AUTO_MODE_LABELS: Record<TtsAuto, string> = {
-  off: "Off",
-  synthesize: "Synthesize",
-  play: "Play",
+  off: msg("Off"),
+  synthesize: msg("Synthesize"),
+  play: msg("Play"),
 };
 
 const AUTO_MODE_DESCRIPTIONS: Record<TtsAuto, string> = {
-  off: "Off unless a chat overrides it in its reply footer.",
-  synthesize: "Automatically synthesize completed replies in the background.",
-  play: "Automatically synthesize and play completed replies aloud.",
+  off: msg("Off unless a chat overrides it in its reply footer."),
+  synthesize: msg("Automatically synthesize completed replies in the background."),
+  play: msg("Automatically synthesize and play completed replies aloud."),
 };
 
 const REGION_LABELS: Record<TtsRegion, string> = {
-  cn: "China (api.minimaxi.com)",
-  global: "Global (api.minimax.io)",
+  cn: msg("China (api.minimaxi.com)"),
+  global: msg("Global (api.minimax.io)"),
 };
 
 const GEMINI_VOICE_PRESETS: ReadonlyArray<{ readonly id: string; readonly label: string }> = [
-  { id: "Kore", label: "Kore \u00b7 Clear & firm (Female)" },
-  { id: "Leda", label: "Leda \u00b7 Warm & youthful (Female)" },
-  { id: "Nika", label: "Nika \u00b7 Expressive & natural (Female)" },
-  { id: "Aoede", label: "Aoede \u00b7 Relaxed & natural (Female)" },
-  { id: "Zephyr", label: "Zephyr \u00b7 Bright & articulate (Female)" },
-  { id: "Callirrhoe", label: "Callirrhoe \u00b7 Friendly & easy-going (Female)" },
-  { id: "Despina", label: "Despina \u00b7 Smooth & gentle (Female)" },
-  { id: "Puck", label: "Puck \u00b7 Upbeat & lively (Male)" },
-  { id: "Charon", label: "Charon \u00b7 Calm & professional (Male)" },
-  { id: "Fenrir", label: "Fenrir \u00b7 Energetic & expressive (Male)" },
-  { id: "Orus", label: "Orus \u00b7 Crisp & steady (Male)" },
-  { id: "Iapetus", label: "Iapetus \u00b7 Composed & intellectual (Male)" },
-  { id: "Umbriel", label: "Umbriel \u00b7 Conversational & relaxed (Male)" },
+  { id: "Kore", label: msg("Kore \u00b7 Clear & firm (Female)") },
+  { id: "Leda", label: msg("Leda \u00b7 Warm & youthful (Female)") },
+  { id: "Nika", label: msg("Nika \u00b7 Expressive & natural (Female)") },
+  { id: "Aoede", label: msg("Aoede \u00b7 Relaxed & natural (Female)") },
+  { id: "Zephyr", label: msg("Zephyr \u00b7 Bright & articulate (Female)") },
+  { id: "Callirrhoe", label: msg("Callirrhoe \u00b7 Friendly & easy-going (Female)") },
+  { id: "Despina", label: msg("Despina \u00b7 Smooth & gentle (Female)") },
+  { id: "Puck", label: msg("Puck \u00b7 Upbeat & lively (Male)") },
+  { id: "Charon", label: msg("Charon \u00b7 Calm & professional (Male)") },
+  { id: "Fenrir", label: msg("Fenrir \u00b7 Energetic & expressive (Male)") },
+  { id: "Orus", label: msg("Orus \u00b7 Crisp & steady (Male)") },
+  { id: "Iapetus", label: msg("Iapetus \u00b7 Composed & intellectual (Male)") },
+  { id: "Umbriel", label: msg("Umbriel \u00b7 Conversational & relaxed (Male)") },
 ];
 
 const GEMINI_MODEL_PRESETS: ReadonlyArray<{ readonly id: string; readonly label: string }> = [
   {
     id: "gemini-3.8-flash-lite-tts",
-    label: "gemini-3.8-flash-lite-tts (Fast & low latency, recommended)",
+    label: msg("gemini-3.8-flash-lite-tts (Fast & low latency, recommended)"),
   },
   {
     id: "gemini-3.8-flash-tts",
-    label: "gemini-3.8-flash-tts (Expressive flagship)",
+    label: msg("gemini-3.8-flash-tts (Expressive flagship)"),
   },
   {
     id: "gemini-2.5-flash-preview-tts",
-    label: "gemini-2.5-flash-preview-tts (Legacy 2.5 Flash)",
+    label: msg("gemini-2.5-flash-preview-tts (Legacy 2.5 Flash)"),
   },
 ];
 
@@ -135,6 +137,10 @@ const EMPTY_SCOPED_ENVIRONMENTS: ReadonlyArray<{
 }> = [];
 
 export function MinimaxSpeechSettingsSection() {
+  const gt = useGT();
+  const m = useMessages();
+  const setting = useSearchableSetting();
+  const speechSetting = setting("minimax-speech");
   const settingsScope = useOptionalSettingsScope();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const environmentId = settingsScope?.target?.environmentId ?? primaryEnvironmentId;
@@ -158,6 +164,13 @@ export function MinimaxSpeechSettingsSection() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const searchTargetId = useSettingsSearchTargetId();
+  const [seenSearchTargetId, setSeenSearchTargetId] = useState<string | null>(null);
+  if (seenSearchTargetId !== searchTargetId) {
+    setSeenSearchTargetId(searchTargetId);
+    if (searchTargetId === speechSetting.id) setAdvancedOpen(true);
+  }
 
   const loading = Boolean(prepared && loadedEnvId !== prepared.environmentId);
 
@@ -228,7 +241,7 @@ export function MinimaxSpeechSettingsSection() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load read-aloud settings");
+        setError(err instanceof Error ? err.message : gt("Failed to load read-aloud settings"));
       })
       .finally(() => {
         if (!cancelled) setLoadedEnvId(prepared.environmentId);
@@ -236,7 +249,7 @@ export function MinimaxSpeechSettingsSection() {
     return () => {
       cancelled = true;
     };
-  }, [prepared, canManage, scopedEnvironments, writableEnvIds]);
+  }, [prepared, canManage, scopedEnvironments, writableEnvIds, gt]);
 
   const parsedCacheMb = Number(cacheMbText.trim());
   const validCacheMb =
@@ -269,7 +282,7 @@ export function MinimaxSpeechSettingsSection() {
     if (!prepared || !canManage || targets.length === 0) return;
     if (!validCacheMb) {
       setStatus(null);
-      setError("Cache limit must be a whole number between 1 and 100000 MB");
+      setError(gt("Cache limit must be a whole number between 1 and 100000 MB"));
       return;
     }
     const cacheMb = parsedCacheMb;
@@ -323,13 +336,13 @@ export function MinimaxSpeechSettingsSection() {
       await Promise.all(targets.map((conn) => ttsModes.refresh(conn).catch(() => undefined)));
       setStatus(
         options?.clearKey || options?.clearGeminiKey
-          ? "API key removed"
+          ? gt("API key removed")
           : targets.length > 1
-            ? `Saved across ${targets.length} environments`
-            : "Saved",
+            ? gt("Saved across {count} environments", { count: targets.length })
+            : gt("Saved"),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save read-aloud settings");
+      setError(err instanceof Error ? err.message : gt("Failed to save read-aloud settings"));
     }
     setSaving(false);
   };
@@ -361,11 +374,14 @@ export function MinimaxSpeechSettingsSection() {
       setCache({ files: 0, bytes: 0 });
       setStatus(
         clearedFiles > 0
-          ? `Cleared ${clearedFiles} cached ${clearedFiles === 1 ? "file" : "files"} (${formatMegabytes(clearedBytes)})`
-          : "Cache is already empty",
+          ? gt(
+              "Cleared {count, plural, one {{count} cached file} other {{count} cached files}} ({size})",
+              { count: clearedFiles, size: formatMegabytes(clearedBytes) },
+            )
+          : gt("Cache is already empty"),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to clear audio cache");
+      setError(err instanceof Error ? err.message : gt("Failed to clear audio cache"));
     }
     setClearing(false);
   };
@@ -380,10 +396,12 @@ export function MinimaxSpeechSettingsSection() {
   );
 
   return (
-    <SettingsSection id={searchableSetting("minimax-speech").id} title="Read aloud (TTS)">
+    <SettingsSection id={speechSetting.id} title={speechSetting.title}>
       <SettingsRow
-        title="Provider"
-        description="Choose the speech synthesis service used to read assistant replies aloud."
+        title={gt("Provider")}
+        description={gt(
+          "Choose the speech synthesis service used to read assistant replies aloud.",
+        )}
         control={
           <Select
             value={form.provider}
@@ -395,13 +413,13 @@ export function MinimaxSpeechSettingsSection() {
               }
             }}
           >
-            <SelectTrigger size="sm" aria-label="Read aloud provider" className="w-64">
-              <SelectValue>{PROVIDER_LABELS[form.provider]}</SelectValue>
+            <SelectTrigger size="sm" aria-label={gt("Read aloud provider")} className="w-64">
+              <SelectValue>{m(PROVIDER_LABELS[form.provider])}</SelectValue>
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
               {(Object.keys(PROVIDER_LABELS) as TtsProvider[]).map((provider) => (
                 <SelectItem key={provider} value={provider}>
-                  {PROVIDER_LABELS[provider]}
+                  {m(PROVIDER_LABELS[provider])}
                 </SelectItem>
               ))}
             </SelectPopup>
@@ -412,8 +430,10 @@ export function MinimaxSpeechSettingsSection() {
       {isGemini ? (
         <>
           <SettingsRow
-            title="Google AI Studio API key"
-            description="Paste an API key from aistudio.google.com. Ready to use immediately with built-in Gemini 3.8 TTS defaults."
+            title={gt("Google AI Studio API key")}
+            description={gt(
+              "Paste an API key from aistudio.google.com. Ready to use immediately with built-in Gemini 3.8 TTS defaults.",
+            )}
             control={
               <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                 <Input
@@ -426,10 +446,10 @@ export function MinimaxSpeechSettingsSection() {
                   }}
                   placeholder={
                     hasGeminiKey
-                      ? "Saved (enter a new key to replace)"
-                      : "Paste your AI Studio API key (AIza...)"
+                      ? gt("Saved (enter a new key to replace)")
+                      : gt("Paste your AI Studio API key (AIza...)")
                   }
-                  aria-label="Google AI Studio API key"
+                  aria-label={gt("Google AI Studio API key")}
                   className="w-64 max-w-full"
                 />
                 {hasGeminiKey ? (
@@ -440,7 +460,7 @@ export function MinimaxSpeechSettingsSection() {
                     disabled={controlsDisabled}
                     onClick={() => void handleSave({ clearGeminiKey: true })}
                   >
-                    Remove saved key
+                    <T>Remove saved key</T>
                   </Button>
                 ) : null}
               </div>
@@ -448,8 +468,10 @@ export function MinimaxSpeechSettingsSection() {
           />
 
           <SettingsRow
-            title="Voice"
-            description="Prebuilt studio voice for Gemini TTS (supports multilingual & Chinese/English speech automatically)."
+            title={gt("Voice")}
+            description={gt(
+              "Prebuilt studio voice for Gemini TTS (supports multilingual & Chinese/English speech automatically).",
+            )}
             control={
               <Select
                 value={selectedGeminiVoicePreset ? form.geminiVoice : "Kore"}
@@ -461,17 +483,17 @@ export function MinimaxSpeechSettingsSection() {
                   }
                 }}
               >
-                <SelectTrigger size="sm" aria-label="Gemini voice" className="w-64">
+                <SelectTrigger size="sm" aria-label={gt("Gemini voice")} className="w-64">
                   <SelectValue>
                     {selectedGeminiVoicePreset
-                      ? selectedGeminiVoicePreset.label
-                      : `${form.geminiVoice} (Custom)`}
+                      ? m(selectedGeminiVoicePreset.label)
+                      : gt("{voice} (Custom)", { voice: form.geminiVoice })}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
                   {GEMINI_VOICE_PRESETS.map((preset) => (
                     <SelectItem key={preset.id} value={preset.id}>
-                      {preset.label}
+                      {m(preset.label)}
                     </SelectItem>
                   ))}
                 </SelectPopup>
@@ -481,8 +503,10 @@ export function MinimaxSpeechSettingsSection() {
         </>
       ) : (
         <SettingsRow
-          title="MiniMax API key"
-          description="Read assistant replies aloud with MiniMax speech synthesis. Stored on the environment and never echoed back."
+          title={gt("MiniMax API key")}
+          description={gt(
+            "Read assistant replies aloud with MiniMax speech synthesis. Stored on the environment and never echoed back.",
+          )}
           control={
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
               <Input
@@ -494,9 +518,11 @@ export function MinimaxSpeechSettingsSection() {
                   setStatus(null);
                 }}
                 placeholder={
-                  hasKey ? "Saved (enter a new key to replace)" : "Paste your MiniMax API key"
+                  hasKey
+                    ? gt("Saved (enter a new key to replace)")
+                    : gt("Paste your MiniMax API key")
                 }
-                aria-label="MiniMax API key"
+                aria-label={gt("MiniMax API key")}
                 className="w-64 max-w-full"
               />
               {hasKey ? (
@@ -507,7 +533,7 @@ export function MinimaxSpeechSettingsSection() {
                   disabled={controlsDisabled}
                   onClick={() => void handleSave({ clearKey: true })}
                 >
-                  Remove saved key
+                  <T>Remove saved key</T>
                 </Button>
               ) : null}
             </div>
@@ -516,8 +542,8 @@ export function MinimaxSpeechSettingsSection() {
       )}
 
       <SettingsRow
-        title="Automatic speech"
-        description={AUTO_MODE_DESCRIPTIONS[form.auto]}
+        title={gt("Automatic speech")}
+        description={m(AUTO_MODE_DESCRIPTIONS[form.auto])}
         control={
           <Select
             value={form.auto}
@@ -529,13 +555,13 @@ export function MinimaxSpeechSettingsSection() {
               }
             }}
           >
-            <SelectTrigger size="sm" aria-label="Automatic speech mode" className="w-40">
-              <SelectValue>{AUTO_MODE_LABELS[form.auto]}</SelectValue>
+            <SelectTrigger size="sm" aria-label={gt("Automatic speech mode")} className="w-40">
+              <SelectValue>{m(AUTO_MODE_LABELS[form.auto])}</SelectValue>
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
               {(Object.keys(AUTO_MODE_LABELS) as TtsAuto[]).map((mode) => (
                 <SelectItem key={mode} value={mode}>
-                  {AUTO_MODE_LABELS[mode]}
+                  {m(AUTO_MODE_LABELS[mode])}
                 </SelectItem>
               ))}
             </SelectPopup>
@@ -544,12 +570,17 @@ export function MinimaxSpeechSettingsSection() {
       />
 
       <SettingsRow
-        title="Audio cache"
-        description={`${cache.files} ${cache.files === 1 ? "file" : "files"} \u00b7 ${formatMegabytes(cache.bytes)} used`}
+        title={gt("Audio cache")}
+        description={gt("{count, plural, one {{count} file} other {{count} files}} · {size} used", {
+          count: cache.files,
+          size: formatMegabytes(cache.bytes),
+        })}
         control={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-              <span>Keep at most</span>
+              <span>
+                <T>Keep at most</T>
+              </span>
               <Input
                 type="number"
                 min={1}
@@ -557,14 +588,16 @@ export function MinimaxSpeechSettingsSection() {
                 step={1}
                 value={cacheMbText}
                 disabled={controlsDisabled}
-                aria-label="Maximum audio cache size in MB"
+                aria-label={gt("Maximum audio cache size in MB")}
                 onChange={(event) => {
                   setCacheMbText(event.target.value);
                   setStatus(null);
                 }}
                 className="w-20"
               />
-              <span>MB</span>
+              <span>
+                <T>MB</T>
+              </span>
             </label>
             <Button
               type="button"
@@ -573,169 +606,196 @@ export function MinimaxSpeechSettingsSection() {
               disabled={controlsDisabled || clearing || cache.files === 0}
               onClick={() => void handleClearCache()}
             >
-              {clearing ? "Clearing\u2026" : confirmClear ? "Tap again to clear" : "Clear cache"}
+              {clearing ? (
+                <T>Clearing…</T>
+              ) : confirmClear ? (
+                <T>Tap again to clear</T>
+              ) : (
+                <T>Clear cache</T>
+              )}
             </Button>
           </div>
         }
       />
 
-      <AdvancedSettings targetIds={[searchableSetting("minimax-speech").id]}>
-        {isGemini ? (
-          <>
-            <SettingsRow
-              title="Gemini model"
-              description="Select a preset Gemini TTS model or type a custom model ID below."
-              control={
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  <Select
-                    value={selectedGeminiModelPreset ? form.geminiModel : ""}
-                    disabled={controlsDisabled}
-                    onValueChange={(value) => {
-                      if (value) {
-                        setForm({ ...form, geminiModel: value });
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger className="group flex min-h-10 w-full items-center gap-1.5 rounded-b-xl px-3 text-left text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-panel-open:rounded-none sm:px-4">
+          <ChevronRightIcon
+            aria-hidden
+            className="size-3.5 shrink-0 transition-transform duration-150 group-data-panel-open:rotate-90 motion-reduce:transition-none"
+          />
+          <T>Advanced TTS</T>
+        </CollapsibleTrigger>
+        <CollapsiblePanel>
+          <div className="border-t border-border/50 *:not-first:border-t *:not-first:border-border/50">
+            {isGemini ? (
+              <>
+                <SettingsRow
+                  title={gt("Gemini model")}
+                  description={gt(
+                    "Select a preset Gemini TTS model or type a custom model ID below.",
+                  )}
+                  control={
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <Select
+                        value={selectedGeminiModelPreset ? form.geminiModel : ""}
+                        disabled={controlsDisabled}
+                        onValueChange={(value) => {
+                          if (value) {
+                            setForm({ ...form, geminiModel: value });
+                            setStatus(null);
+                          }
+                        }}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          aria-label={gt("Gemini model preset")}
+                          className="w-64"
+                        >
+                          <SelectValue>
+                            {selectedGeminiModelPreset
+                              ? m(selectedGeminiModelPreset.label)
+                              : gt("Custom model")}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectPopup align="end" alignItemWithTrigger={false}>
+                          {GEMINI_MODEL_PRESETS.map((preset) => (
+                            <SelectItem key={preset.id} value={preset.id}>
+                              {m(preset.label)}
+                            </SelectItem>
+                          ))}
+                        </SelectPopup>
+                      </Select>
+                      <Input
+                        type="text"
+                        value={form.geminiModel}
+                        disabled={controlsDisabled}
+                        placeholder={DEFAULT_TTS_SETTINGS.geminiModel}
+                        aria-label={gt("Gemini model ID")}
+                        onChange={(event) => {
+                          setForm({ ...form, geminiModel: event.target.value });
+                          setStatus(null);
+                        }}
+                        className="w-64"
+                      />
+                    </div>
+                  }
+                />
+
+                <SettingsRow
+                  title={gt("Custom voice ID")}
+                  description={gt(
+                    "Override with any Gemini voice name or custom voice ID (e.g. Kore, Puck, voice_...).",
+                  )}
+                  control={
+                    <Input
+                      type="text"
+                      value={form.geminiVoice}
+                      disabled={controlsDisabled}
+                      placeholder={DEFAULT_TTS_SETTINGS.geminiVoice}
+                      aria-label={gt("Gemini voice ID")}
+                      onChange={(event) => {
+                        setForm({ ...form, geminiVoice: event.target.value });
                         setStatus(null);
-                      }
-                    }}
-                  >
-                    <SelectTrigger size="sm" aria-label="Gemini model preset" className="w-64">
-                      <SelectValue>
-                        {selectedGeminiModelPreset
-                          ? selectedGeminiModelPreset.label
-                          : "Custom model"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup align="end" alignItemWithTrigger={false}>
-                      {GEMINI_MODEL_PRESETS.map((preset) => (
-                        <SelectItem key={preset.id} value={preset.id}>
-                          {preset.label}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                  <Input
-                    type="text"
-                    value={form.geminiModel}
-                    disabled={controlsDisabled}
-                    placeholder={DEFAULT_TTS_SETTINGS.geminiModel}
-                    aria-label="Gemini model ID"
-                    onChange={(event) => {
-                      setForm({ ...form, geminiModel: event.target.value });
-                      setStatus(null);
-                    }}
-                    className="w-64"
-                  />
-                </div>
-              }
-            />
-
-            <SettingsRow
-              title="Custom voice ID"
-              description="Override with any Gemini voice name or custom voice ID (e.g. Kore, Puck, voice_...)."
-              control={
-                <Input
-                  type="text"
-                  value={form.geminiVoice}
-                  disabled={controlsDisabled}
-                  placeholder={DEFAULT_TTS_SETTINGS.geminiVoice}
-                  aria-label="Gemini voice ID"
-                  onChange={(event) => {
-                    setForm({ ...form, geminiVoice: event.target.value });
-                    setStatus(null);
-                  }}
-                  className="w-64"
+                      }}
+                      className="w-64"
+                    />
+                  }
                 />
-              }
-            />
 
-            <SettingsRow
-              title="Speaking style (optional)"
-              description="Optional natural-language delivery instruction (e.g. 'warm, calm, and conversational'). Leave blank for default."
-              control={
-                <Input
-                  type="text"
-                  value={form.geminiStyle}
-                  disabled={controlsDisabled}
-                  placeholder="Optional style prompt"
-                  aria-label="Gemini speaking style"
-                  onChange={(event) => {
-                    setForm({ ...form, geminiStyle: event.target.value });
-                    setStatus(null);
-                  }}
-                  className="w-64"
+                <SettingsRow
+                  title={gt("Speaking style (optional)")}
+                  description={gt(
+                    "Optional natural-language delivery instruction (e.g. ''warm, calm, and conversational''). Leave blank for default.",
+                  )}
+                  control={
+                    <Input
+                      type="text"
+                      value={form.geminiStyle}
+                      disabled={controlsDisabled}
+                      placeholder={gt("Optional style prompt")}
+                      aria-label={gt("Gemini speaking style")}
+                      onChange={(event) => {
+                        setForm({ ...form, geminiStyle: event.target.value });
+                        setStatus(null);
+                      }}
+                      className="w-64"
+                    />
+                  }
                 />
-              }
-            />
-          </>
-        ) : (
-          <>
-            <SettingsRow
-              title="Region"
-              description="Select the MiniMax API endpoint matching your account region."
-              control={
-                <Select
-                  value={form.region}
-                  disabled={controlsDisabled}
-                  onValueChange={(value) => {
-                    if (value === "cn" || value === "global") {
-                      setForm({ ...form, region: value });
-                      setStatus(null);
-                    }
-                  }}
-                >
-                  <SelectTrigger size="sm" aria-label="MiniMax region" className="w-56">
-                    <SelectValue>{REGION_LABELS[form.region]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    {(Object.keys(REGION_LABELS) as TtsRegion[]).map((region) => (
-                      <SelectItem key={region} value={region}>
-                        {REGION_LABELS[region]}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              }
-            />
+              </>
+            ) : (
+              <>
+                <SettingsRow
+                  title={gt("Region")}
+                  description={gt("Select the MiniMax API endpoint matching your account region.")}
+                  control={
+                    <Select
+                      value={form.region}
+                      disabled={controlsDisabled}
+                      onValueChange={(value) => {
+                        if (value === "cn" || value === "global") {
+                          setForm({ ...form, region: value });
+                          setStatus(null);
+                        }
+                      }}
+                    >
+                      <SelectTrigger size="sm" aria-label={gt("MiniMax region")} className="w-56">
+                        <SelectValue>{m(REGION_LABELS[form.region])}</SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end" alignItemWithTrigger={false}>
+                        {(Object.keys(REGION_LABELS) as TtsRegion[]).map((region) => (
+                          <SelectItem key={region} value={region}>
+                            {m(REGION_LABELS[region])}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  }
+                />
 
-            <SettingsRow
-              title="Model"
-              description="MiniMax speech model identifier."
-              control={
-                <Input
-                  type="text"
-                  value={form.model}
-                  disabled={controlsDisabled}
-                  placeholder={DEFAULT_TTS_SETTINGS.model}
-                  aria-label="MiniMax model"
-                  onChange={(event) => {
-                    setForm({ ...form, model: event.target.value });
-                    setStatus(null);
-                  }}
-                  className="w-56"
+                <SettingsRow
+                  title={gt("Model")}
+                  description={gt("MiniMax speech model identifier.")}
+                  control={
+                    <Input
+                      type="text"
+                      value={form.model}
+                      disabled={controlsDisabled}
+                      placeholder={DEFAULT_TTS_SETTINGS.model}
+                      aria-label={gt("MiniMax model")}
+                      onChange={(event) => {
+                        setForm({ ...form, model: event.target.value });
+                        setStatus(null);
+                      }}
+                      className="w-56"
+                    />
+                  }
                 />
-              }
-            />
 
-            <SettingsRow
-              title="Voice ID"
-              description="MiniMax voice identifier used for synthesis."
-              control={
-                <Input
-                  type="text"
-                  value={form.voice}
-                  disabled={controlsDisabled}
-                  placeholder={DEFAULT_TTS_SETTINGS.voice}
-                  aria-label="MiniMax voice ID"
-                  onChange={(event) => {
-                    setForm({ ...form, voice: event.target.value });
-                    setStatus(null);
-                  }}
-                  className="w-64"
+                <SettingsRow
+                  title={gt("Voice ID")}
+                  description={gt("MiniMax voice identifier used for synthesis.")}
+                  control={
+                    <Input
+                      type="text"
+                      value={form.voice}
+                      disabled={controlsDisabled}
+                      placeholder={DEFAULT_TTS_SETTINGS.voice}
+                      aria-label={gt("MiniMax voice ID")}
+                      onChange={(event) => {
+                        setForm({ ...form, voice: event.target.value });
+                        setStatus(null);
+                      }}
+                      className="w-64"
+                    />
+                  }
                 />
-              }
-            />
-          </>
-        )}
-      </AdvancedSettings>
+              </>
+            )}
+          </div>
+        </CollapsiblePanel>
+      </Collapsible>
 
       <div className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-4">
         <div className="min-w-0 text-xs">
@@ -745,7 +805,7 @@ export function MinimaxSpeechSettingsSection() {
             <span className="text-muted-foreground">{status}</span>
           ) : outOfSync ? (
             <span className="text-muted-foreground">
-              Settings differ across connected environments. Click Save to sync.
+              <T>Settings differ across connected environments. Click Save to sync.</T>
             </span>
           ) : null}
         </div>
@@ -755,7 +815,7 @@ export function MinimaxSpeechSettingsSection() {
           disabled={!dirty || controlsDisabled}
           onClick={() => void handleSave()}
         >
-          {saving ? "Saving\u2026" : "Save"}
+          {saving ? <T>Saving…</T> : <T>Save</T>}
         </Button>
       </div>
     </SettingsSection>

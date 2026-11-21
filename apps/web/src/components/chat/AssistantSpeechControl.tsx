@@ -10,6 +10,7 @@ import {
   type TtsSpeechState,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
 import { PauseIcon, PlayIcon, Volume2Icon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -40,9 +41,9 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 const AUTO_MODES: readonly TtsAuto[] = ["off", "synthesize", "play"];
 
 const AUTO_MODE_LABELS: Record<TtsAuto, string> = {
-  off: "Off",
-  synthesize: "Synthesize",
-  play: "Play",
+  off: msg("Off"),
+  synthesize: msg("Synthesize"),
+  play: msg("Play"),
 };
 
 export function AssistantSpeechControl({
@@ -60,6 +61,8 @@ export function AssistantSpeechControl({
   readonly threadId: ThreadId | null;
   readonly onVisibilityHoldChange?: (hold: boolean) => void;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const prepared = Option.getOrNull(usePreparedConnection(environmentId));
   const threadShell = useThreadShell(
     environmentId && threadId ? { environmentId, threadId } : null,
@@ -142,7 +145,7 @@ export function AssistantSpeechControl({
       try {
         await webPlayer.toggle();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Playback failed");
+        setError(err instanceof Error ? err.message : gt("Playback failed"));
       }
       return;
     }
@@ -162,12 +165,12 @@ export function AssistantSpeechControl({
         id: messageId,
         threadId: threadId ?? undefined,
         environmentId: environmentId ?? undefined,
-        title: threadShell?.title ?? "Reading aloud",
+        title: threadShell?.title ?? gt("Reading aloud"),
         base64: res.base64,
         mimeType: res.mimeType,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to synthesize speech";
+      const message = err instanceof Error ? err.message : gt("Failed to synthesize speech");
       setState("idle");
       if (message !== "Speech synthesis cancelled") {
         setError(message);
@@ -182,7 +185,7 @@ export function AssistantSpeechControl({
     try {
       await ttsModes.setChat(prepared, chatKey, next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update chat auto mode");
+      setError(err instanceof Error ? err.message : gt("Failed to update chat auto mode"));
     }
   };
 
@@ -199,14 +202,14 @@ export function AssistantSpeechControl({
   };
 
   const buttonLabel = working
-    ? "Cancel synthesis"
+    ? gt("Cancel synthesis")
     : mine
       ? audio.playing
-        ? "Pause"
-        : "Resume"
+        ? gt("Pause")
+        : gt("Resume")
       : state === "ready"
-        ? "Read aloud (cached)"
-        : "Read aloud";
+        ? gt("Read aloud (cached)")
+        : gt("Read aloud");
 
   return (
     <div className="inline-flex flex-wrap items-center gap-1.5">
@@ -239,14 +242,16 @@ export function AssistantSpeechControl({
       </Tooltip>
 
       {working ? (
-        <span className="text-muted-foreground text-xs">Synthesizing…</span>
+        <span className="text-muted-foreground text-xs">
+          <T>Synthesizing…</T>
+        </span>
       ) : mine ? (
         <div className="inline-flex items-center gap-2">
           <div
             ref={barRef}
             role="slider"
             tabIndex={0}
-            aria-label="Audio progress"
+            aria-label={gt("Audio progress")}
             aria-valuemin={0}
             aria-valuemax={Math.round(duration)}
             aria-valuenow={Math.round(position)}
@@ -284,7 +289,9 @@ export function AssistantSpeechControl({
           </span>
         </div>
       ) : state === "ready" ? (
-        <span className="text-muted-foreground text-xs">Ready</span>
+        <span className="text-muted-foreground text-xs">
+          <T>Ready</T>
+        </span>
       ) : null}
 
       {chatKey && prepared ? (
@@ -295,12 +302,19 @@ export function AssistantSpeechControl({
                 type="button"
                 size="xs"
                 variant="ghost-muted"
-                aria-label="Automatic speech mode for this chat"
+                aria-label={gt("Automatic speech mode for this chat")}
               />
             }
           >
-            Auto: {effectiveAuto}
-            {override ? " *" : ""}
+            {override ? (
+              <T>
+                Auto: <Var>{m(AUTO_MODE_LABELS[effectiveAuto])}</Var> *
+              </T>
+            ) : (
+              <T>
+                Auto: <Var>{m(AUTO_MODE_LABELS[effectiveAuto])}</Var>
+              </T>
+            )}
           </MenuTrigger>
           <MenuPopup align="start">
             <MenuRadioGroup
@@ -313,7 +327,7 @@ export function AssistantSpeechControl({
             >
               {AUTO_MODES.map((item) => (
                 <MenuRadioItem key={item} value={item}>
-                  {AUTO_MODE_LABELS[item]}
+                  {m(AUTO_MODE_LABELS[item])}
                 </MenuRadioItem>
               ))}
             </MenuRadioGroup>
@@ -321,7 +335,9 @@ export function AssistantSpeechControl({
               <>
                 <MenuSeparator />
                 <MenuItem onClick={() => void handleSelectMode(null)}>
-                  Default ({modes.auto})
+                  <T>
+                    Default (<Var>{m(AUTO_MODE_LABELS[modes.auto])}</Var>)
+                  </T>
                 </MenuItem>
               </>
             ) : null}

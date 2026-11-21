@@ -2,6 +2,7 @@ import type { PreparedConnection } from "@t3tools/client-runtime/connection";
 import { type ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as Option from "effect/Option";
+import { T, useGT } from "gt-react";
 import { ArrowUpRightIcon, PauseIcon, PlayIcon, Volume2Icon, XIcon } from "lucide-react";
 import { memo } from "react";
 
@@ -19,6 +20,7 @@ import { useSidebar } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const SidebarNowPlaying = memo(function SidebarNowPlaying() {
+  const gt = useGT();
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -60,7 +62,7 @@ export const SidebarNowPlaying = memo(function SidebarNowPlaying() {
 
   if (!audio.id || audio.ended) return null;
 
-  const title = threadShell?.title || audio.title || "Reading aloud";
+  const title = threadShell?.title || audio.title || gt("Reading aloud");
   const canNavigate = Boolean(targetEnvironmentId && audio.threadId);
   const progress =
     audio.duration > 0 ? Math.min(100, Math.max(0, (audio.position / audio.duration) * 100)) : 0;
@@ -86,21 +88,22 @@ export const SidebarNowPlaying = memo(function SidebarNowPlaying() {
               type="button"
               disabled={!canNavigate}
               onClick={handleOpenThread}
-              aria-label={canNavigate ? `Jump to ${title}` : title}
+              aria-label={canNavigate ? gt("Jump to {title}", { title }) : title}
               className="group text-foreground enabled:hover:bg-accent/70 focus-visible:ring-ring flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:outline-none disabled:cursor-default"
             />
           }
         >
           <Volume2Icon className="text-primary size-3.5 shrink-0" />
           <span className="truncate font-medium group-hover:underline group-hover:underline-offset-2">
-            {audio.playing ? "" : "Paused \u00b7 "}
-            {title}
+            {audio.playing ? title : gt("Paused \u00b7 {title}", { title })}
           </span>
           {canNavigate ? (
             <ArrowUpRightIcon className="text-muted-foreground group-hover:text-foreground ml-auto size-3 shrink-0 opacity-60 transition-all group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:opacity-100" />
           ) : null}
         </TooltipTrigger>
-        <TooltipPopup side="top">{canNavigate ? `Jump to chat: ${title}` : title}</TooltipPopup>
+        <TooltipPopup side="top">
+          {canNavigate ? gt("Jump to chat: {title}", { title }) : title}
+        </TooltipPopup>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -109,14 +112,14 @@ export const SidebarNowPlaying = memo(function SidebarNowPlaying() {
               type="button"
               size="icon-xs"
               variant="ghost"
-              aria-label={audio.playing ? "Pause" : "Resume"}
+              aria-label={audio.playing ? gt("Pause") : gt("Resume")}
               onClick={() => void webPlayer.toggle()}
             />
           }
         >
           {audio.playing ? <PauseIcon className="size-3" /> : <PlayIcon className="size-3" />}
         </TooltipTrigger>
-        <TooltipPopup side="top">{audio.playing ? "Pause" : "Resume"}</TooltipPopup>
+        <TooltipPopup side="top">{audio.playing ? gt("Pause") : gt("Resume")}</TooltipPopup>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -125,7 +128,7 @@ export const SidebarNowPlaying = memo(function SidebarNowPlaying() {
               type="button"
               size="icon-xs"
               variant="ghost"
-              aria-label="Stop"
+              aria-label={gt("Stop")}
               onClick={() => {
                 clearMinimaxAutoplayQueue();
                 webPlayer.dispose();
@@ -135,7 +138,9 @@ export const SidebarNowPlaying = memo(function SidebarNowPlaying() {
         >
           <XIcon className="size-3" />
         </TooltipTrigger>
-        <TooltipPopup side="top">Stop</TooltipPopup>
+        <TooltipPopup side="top">
+          <T>Stop</T>
+        </TooltipPopup>
       </Tooltip>
       {progress > 0 ? (
         <div className="bg-border/40 pointer-events-none absolute inset-x-0 bottom-0 h-0.5">

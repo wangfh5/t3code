@@ -12,8 +12,10 @@ import {
   type TtsMimeType,
   type TtsReplyRecord,
 } from "@t3tools/contracts";
+import { msg } from "gt-react";
 import { useEffect, useSyncExternalStore } from "react";
 
+import { m } from "../i18n/messages";
 import { runEnvironmentSpeech } from "./runEnvironmentSpeech";
 
 export interface WebAudioState {
@@ -145,7 +147,7 @@ function createWebPlayer() {
     };
     current.onerror = () => {
       if (audio !== current) return;
-      emit({ playing: false, error: "Audio playback failed" });
+      emit({ playing: false, error: m(msg("Audio playback failed")) });
     };
 
     await current.play();
