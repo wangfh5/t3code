@@ -28,15 +28,19 @@ describe("ElectronShell", () => {
     Effect.gen(function* () {
       openExternalMock.mockResolvedValue(undefined);
 
-      const electronShell = yield* ElectronShell.ElectronShell;
-      const result = yield* electronShell.openExternal(
+      const urls = [
         "vscode://vscode-remote/ssh-remote+user%40example.com/home/user/project",
-      );
+        "antigravity-ide://vscode-remote/ssh-remote+user%40example.com/home/user/project",
+        "antigravity-ide://vscode-remote/ssh-remote+user%40example.com/home/user/project/file.ts:1:1",
+      ];
+      const electronShell = yield* ElectronShell.ElectronShell;
+      const results = yield* Effect.forEach(urls, (url) => electronShell.openExternal(url));
 
-      assert.equal(result, true);
-      assert.deepEqual(openExternalMock.mock.calls, [
-        ["vscode://vscode-remote/ssh-remote+user%40example.com/home/user/project"],
-      ]);
+      assert.deepEqual(results, [true, true, true]);
+      assert.deepEqual(
+        openExternalMock.mock.calls,
+        urls.map((url) => [url]),
+      );
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
 
@@ -90,11 +94,12 @@ describe("ElectronShell", () => {
         "vscode://file/Users/me/repo/file.md:3:7",
         "vscode-insiders://file/Users/me/repo/file.md",
         "vscodium://file/C:/Users/me/repo/file.md:3",
+        "antigravity-ide://file/Users/me/repo/file.md:12:4",
       ];
       const electronShell = yield* ElectronShell.ElectronShell;
       const results = yield* Effect.forEach(urls, (url) => electronShell.openExternal(url));
 
-      assert.deepEqual(results, [true, true, true, true]);
+      assert.deepEqual(results, [true, true, true, true, true]);
       assert.deepEqual(
         openExternalMock.mock.calls,
         urls.map((url) => [url]),

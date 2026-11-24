@@ -60,6 +60,7 @@ export const EDITORS = [
     // The IDE ships antigravity-ide; agy is the standalone CLI.
     commands: ["antigravity-ide", "agy-ide"],
     launchStyle: "goto",
+    remoteScheme: "antigravity-ide",
   },
   {
     id: "idea",
