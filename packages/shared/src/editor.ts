@@ -159,7 +159,9 @@ export const resolveEditorCommand = Effect.fn("editor.resolveEditorCommand")(fun
           ? "Microsoft VS Code"
           : editor.id === "vscode-insiders"
             ? "Microsoft VS Code Insiders"
-            : editor.label;
+            : editor.id === "antigravity"
+              ? "Antigravity IDE"
+              : editor.label;
       for (const root of roots) {
         candidates.push(
           path.join(root, name, "resources/app/bin", `${command}.cmd`),

@@ -161,7 +161,7 @@ export function useRemoteOpenState(environmentId: EnvironmentId | null): RemoteO
   return useRemoteOpenResolution(environmentId).state;
 }
 
-const REMOTE_FALLBACK_EDITORS: ReadonlyArray<EditorId> = ["vscode"];
+const REMOTE_FALLBACK_EDITORS: ReadonlyArray<EditorId> = REMOTE_CAPABLE_EDITOR_IDS;
 
 // Phone and tablet browsers have no desktop editor to receive a vscode:// remote link.
 export function remoteFallbackEditors(identity: BrowserIdentity): ReadonlyArray<EditorId> {

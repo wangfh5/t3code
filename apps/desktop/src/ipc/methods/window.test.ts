@@ -558,12 +558,16 @@ it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-remote-editors-" });
-      for (const app of ["Cursor", "Visual Studio Code", "WebStorm"]) {
+      for (const app of ["Cursor", "Visual Studio Code", "Antigravity IDE", "WebStorm"]) {
         const executable = path.join(
           home,
           "Applications",
           `${app}.app`,
-          app === "WebStorm" ? "Contents/MacOS/webstorm" : "Contents/Resources/app/bin/code",
+          app === "WebStorm"
+            ? "Contents/MacOS/webstorm"
+            : app === "Antigravity IDE"
+              ? "Contents/Resources/app/bin/antigravity-ide"
+              : "Contents/Resources/app/bin/code",
         );
         yield* fs.makeDirectory(path.dirname(executable), { recursive: true });
         yield* fs.writeFileString(executable, "#!/bin/sh\n");
@@ -578,6 +582,7 @@ it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
       );
       assert.include(editors, "cursor");
       assert.include(editors, "vscode");
+      assert.include(editors, "antigravity");
       assert.include(editors, "webstorm");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

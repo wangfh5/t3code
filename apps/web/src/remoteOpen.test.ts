@@ -6,7 +6,7 @@ import {
   SshConnectionProfile,
   SshConnectionTarget,
 } from "@t3tools/client-runtime/connection";
-import { buildRemoteOpenUrl, EnvironmentId } from "@t3tools/contracts";
+import { buildRemoteOpenUrl, EnvironmentId, REMOTE_CAPABLE_EDITOR_IDS } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -261,15 +261,15 @@ describe("remoteFallbackEditors", () => {
     expect(remoteFallbackEditors(identity)).toEqual([]);
   });
 
-  it("keeps the VS Code fallback for remote links on a Mac", () => {
-    expect(
-      remoteFallbackEditors({
-        userAgent:
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-        platform: "MacIntel",
-        maxTouchPoints: 0,
-      }),
-    ).toEqual(["vscode"]);
+  it("offers all remote-capable editors including Antigravity on a Mac browser", () => {
+    const editors = remoteFallbackEditors({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+      platform: "MacIntel",
+      maxTouchPoints: 0,
+    });
+    expect(editors).toEqual(REMOTE_CAPABLE_EDITOR_IDS);
+    expect(editors).toContain("antigravity");
   });
 });
 
@@ -327,6 +327,17 @@ describe("buildRemoteOpenUrl", () => {
     const targets = [
       ["vscode", true, "vscode://vscode-remote/ssh-remote+sol/tmp/my%20file.md:1:1"],
       ["cursor", true, "cursor://vscode-remote/ssh-remote+sol/tmp/my%20file.md:1:1"],
+      ["antigravity", true, "antigravity-ide://vscode-remote/ssh-remote+sol/tmp/my%20file.md:1:1"],
+      [
+        "antigravity",
+        false,
+        "antigravity-ide://vscode-remote/ssh-remote+sol/tmp/my%20file.md?windowId=_blank",
+      ],
+      [
+        "antigravity",
+        undefined,
+        "antigravity-ide://vscode-remote/ssh-remote+sol/tmp/my%20file.md?windowId=_blank",
+      ],
       ["vscode", false, "vscode://vscode-remote/ssh-remote+sol/tmp/my%20file.md?windowId=_blank"],
       [
         "vscode",
