@@ -15,6 +15,7 @@ import { HtmlRenderFrame } from "./HtmlRenderFrame";
 import { McpAppFrame } from "./McpAppFrame";
 import { readResponseSubagents, useAssistantMessageText } from "../../state/entities";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { AssistantSpeechControl } from "./AssistantSpeechControl";
 import { AssistantCitationSource } from "./AssistantCitationSource";
 import { resolveAssistantMessageCopyState } from "./MessagesTimeline.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -209,12 +210,13 @@ function AssistantMessageMeta({
 }) {
   const ctx = use(TimelineRowCtx);
   const m = useMessages();
+  const [holdSpeechVisible, setHoldSpeechVisible] = useState(false);
 
   return (
     <div
       className={cn(
-        "flex items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
-        alwaysVisible
+        "flex flex-wrap items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
+        alwaysVisible || holdSpeechVisible
           ? "opacity-100"
           : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
         className,
@@ -234,6 +236,14 @@ function AssistantMessageMeta({
       {!message.streaming && projectedItem ? (
         <AssistantReplyButton message={message} itemId={projectedItem.sourceItemId} />
       ) : null}
+      <AssistantSpeechControl
+        messageId={message.id}
+        text={message.text ?? ""}
+        streaming={Boolean(message.streaming || copyStreaming)}
+        environmentId={ctx.threadRef?.environmentId ?? ctx.activeThreadEnvironmentId ?? null}
+        threadId={ctx.threadRef?.threadId ?? projectedItem?.sourceThreadId ?? null}
+        onVisibilityHoldChange={setHoldSpeechVisible}
+      />
       {!message.streaming && (
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>

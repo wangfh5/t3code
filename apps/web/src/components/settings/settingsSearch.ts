@@ -716,6 +716,16 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("test voice speech model transcription recognition")],
   },
   {
+    id: "minimax-speech",
+    title: msg("Read aloud (TTS)"),
+    to: "/settings/voice",
+    searchTerms: [
+      msg(
+        "read aloud tts text to speech voice synthesis autoplay cache api key minimax gemini google ai studio",
+      ),
+    ],
+  },
+  {
     id: "auto-settle-inactive-threads",
     title: msg("Auto-settle inactive threads"),
     to: "/settings/threads",
